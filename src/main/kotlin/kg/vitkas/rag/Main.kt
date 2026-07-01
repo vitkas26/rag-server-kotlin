@@ -1,0 +1,90 @@
+package kg.vitkas.rag
+
+import io.ktor.client.HttpClient
+import io.ktor.client.engine.cio.CIO
+import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
+import io.ktor.serialization.kotlinx.json.json
+import io.ktor.server.cio.EngineMain
+import kg.vitkas.rag.config.AppConfig
+import kg.vitkas.rag.pipeline.EmbeddingService
+import kg.vitkas.rag.pipeline.IndexRepository
+import kg.vitkas.rag.pipeline.chunkByFixedSize
+import kg.vitkas.rag.pipeline.chunkBySection
+import kg.vitkas.rag.pipeline.extractSections
+import kg.vitkas.rag.pipeline.extractTextFromMarkdown
+import kotlinx.coroutines.runBlocking
+import kotlinx.serialization.json.Json
+import org.slf4j.LoggerFactory
+
+private val logger = LoggerFactory.getLogger("kg.vitkas.rag.Main")
+
+fun main(args: Array<String>) {
+    runBlocking { runCliIndexing() }
+    logger.info("🔵 RAG_DAY21 indexing done, starting server on :8080...")
+    EngineMain.main(args)
+}
+
+private suspend fun runCliIndexing() {
+    val config = AppConfig.fromDefaults()
+    logger.info("Starting CLI indexing pipeline")
+
+    val httpClient = HttpClient(CIO) {
+        install(ContentNegotiation) { json(Json { ignoreUnknownKeys = true }) }
+    }
+
+    try {
+        val text = extractTextFromMarkdown(config.rag.mdPath).getOrElse { e ->
+            logger.error("Markdown extraction failed", e)
+            return
+        }
+
+        val fixedChunks   = chunkByFixedSize(text, config.rag)
+        val sections      = extractSections(text)
+        val sectionChunks = chunkBySection(sections, config.rag)
+
+        val embeddingService = EmbeddingService(httpClient, config)
+
+        logger.info("Generating embeddings for strategy A ({} chunks)...", fixedChunks.size)
+        val embeddedFixed = embeddingService.embedChunks(fixedChunks).getOrElse { e ->
+            logger.error("Embedding failed (fixed)", e)
+            return
+        }
+
+        logger.info("Generating embeddings for strategy B ({} chunks)...", sectionChunks.size)
+        val embeddedSection = embeddingService.embedChunks(sectionChunks).getOrElse { e ->
+            logger.error("Embedding failed (section)", e)
+            return
+        }
+
+        val repo = IndexRepository(config)
+        repo.save(embeddedFixed, embeddedSection).getOrElse { e ->
+            logger.error("DB save failed", e)
+            return
+        }
+
+        printComparison(repo)
+        logger.info("Indexing complete. DB: {}", config.rag.dbPath)
+    } finally {
+        httpClient.close()
+    }
+}
+
+private fun printComparison(repo: IndexRepository) {
+    val stats = repo.stats()
+    println()
+    println("=== Сравнение стратегий chunking ===")
+    println()
+
+    @Suppress("UNCHECKED_CAST")
+    fun printStats(label: String, key: String) {
+        val s = stats[key] as? Map<String, Any> ?: return
+        println("$label:")
+        println("  Всего чанков:   ${s["count"]}")
+        println("  Средний размер: ${"%.0f".format(s["avg"] as Double)} слов")
+        println("  Мин: ${s["min"]} слов, Макс: ${s["max"]} слов")
+        println()
+    }
+
+    printStats("Стратегия A (fixed_size)", "chunks_fixed")
+    printStats("Стратегия B (by_structure)", "chunks_by_section")
+}

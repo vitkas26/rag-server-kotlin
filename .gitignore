@@ -1,0 +1,19 @@
+# Gradle
+.gradle/
+build/
+*.gradle.kts.dsl.kts
+
+# IntelliJ / Android Studio
+.idea/
+*.iml
+*.ipr
+*.iws
+
+# Локальные настройки
+local.properties
+
+# База данных индекса (генерируется при запуске)
+rag_index.db
+
+# macOS
+.DS_Store
