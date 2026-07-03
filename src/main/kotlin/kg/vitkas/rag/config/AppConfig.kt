@@ -13,7 +13,15 @@ data class RagConfig(
     val topK: Int
 )
 
-data class AppConfig(val ollama: OllamaConfig, val rag: RagConfig) {
+data class AnthropicConfig(
+    val apiKey: String,
+    val url: String,
+    val model: String,
+    val maxTokens: Int,
+    val version: String
+)
+
+data class AppConfig(val ollama: OllamaConfig, val rag: RagConfig, val anthropic: AnthropicConfig) {
     companion object {
         fun from(config: ApplicationConfig): AppConfig = AppConfig(
             ollama = OllamaConfig(
@@ -27,6 +35,13 @@ data class AppConfig(val ollama: OllamaConfig, val rag: RagConfig) {
                 fixedOverlap = config.property("rag.fixedOverlap").getString().toInt(),
                 sectionMax   = config.property("rag.sectionMax").getString().toInt(),
                 topK         = config.property("rag.topK").getString().toInt()
+            ),
+            anthropic = AnthropicConfig(
+                apiKey    = config.property("anthropic.apiKey").getString(),
+                url       = config.property("anthropic.url").getString(),
+                model     = config.property("anthropic.model").getString(),
+                maxTokens = config.property("anthropic.maxTokens").getString().toInt(),
+                version   = config.property("anthropic.version").getString()
             )
         )
 
@@ -37,11 +52,18 @@ data class AppConfig(val ollama: OllamaConfig, val rag: RagConfig) {
             ),
             rag = RagConfig(
                 dbPath       = "rag_index.db",
-                mdPath       = "NURAi_technical_document.md",
+                mdPath       = "syucai_knowledge_base.md",
                 fixedSize    = 500,
                 fixedOverlap = 50,
                 sectionMax   = 800,
                 topK         = 5
+            ),
+            anthropic = AnthropicConfig(
+                apiKey    = System.getenv("ANTHROPIC_API_KEY") ?: "",
+                url       = "https://api.anthropic.com/v1/messages",
+                model     = "claude-haiku-4-5-20251001",
+                maxTokens = 1024,
+                version   = "2023-06-01"
             )
         )
     }

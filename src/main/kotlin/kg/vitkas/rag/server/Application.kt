@@ -16,8 +16,10 @@ import io.ktor.server.routing.routing
 import kg.vitkas.rag.config.AppConfig
 import kg.vitkas.rag.model.ErrorResponse
 import kg.vitkas.rag.model.RagError
+import kg.vitkas.rag.pipeline.AnthropicClient
 import kg.vitkas.rag.pipeline.EmbeddingService
 import kg.vitkas.rag.pipeline.IndexRepository
+import kg.vitkas.rag.server.routes.askRoutes
 import kg.vitkas.rag.server.routes.indexRoutes
 import kg.vitkas.rag.server.routes.searchRoutes
 import kotlinx.serialization.json.Json
@@ -50,9 +52,11 @@ fun Application.module() {
 
     val embeddingService = EmbeddingService(httpClient, config)
     val indexRepository  = IndexRepository(config)
+    val anthropicClient  = AnthropicClient(httpClient, config)
 
     routing {
         indexRoutes(embeddingService, indexRepository, config)
         searchRoutes(embeddingService, indexRepository, config)
+        askRoutes(embeddingService, indexRepository, anthropicClient, config)
     }
 }

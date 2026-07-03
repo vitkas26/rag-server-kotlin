@@ -27,3 +27,18 @@ data class IndexResponse(val fixedChunks: Int, val sectionChunks: Int, val durat
 
 @Serializable
 data class ErrorResponse(val error: String)
+
+@Serializable
+data class AskRequest(val question: String, val topK: Int = 3)
+
+@Serializable
+data class Source(val chunkId: String, val title: String, val score: Double)
+
+@Serializable
+data class AskResponse(val answer: String, val sources: List<Source>, val mode: String = "rag")
+
+@Serializable
+data class AskNoRagRequest(val question: String)
+
+@Serializable
+data class AskNoRagResponse(val answer: String, val mode: String = "no_rag")

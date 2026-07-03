@@ -8,4 +8,5 @@ sealed class RagError(
     class EmbeddingError(message: String, cause: Throwable? = null) : RagError(message, cause)
     class DatabaseError(message: String, cause: Throwable? = null) : RagError(message, cause)
     class NotIndexedError(message: String) : RagError(message)
+    class AnthropicError(message: String, cause: Throwable? = null) : RagError(message, cause)
 }

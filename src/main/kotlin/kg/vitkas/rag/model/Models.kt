@@ -1,5 +1,6 @@
 package kg.vitkas.rag.model
 
+import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
 data class Section(
@@ -29,4 +30,23 @@ data class OllamaResponse(
 ) {
     fun toVector(): List<Double> =
         embedding ?: embeddings?.firstOrNull() ?: emptyList()
+}
+
+@Serializable
+data class AnthropicMessage(val role: String, val content: String)
+
+@Serializable
+data class AnthropicRequest(
+    val model: String,
+    @SerialName("max_tokens") val maxTokens: Int,
+    val system: String,
+    val messages: List<AnthropicMessage>
+)
+
+@Serializable
+data class AnthropicContentBlock(val type: String, val text: String? = null)
+
+@Serializable
+data class AnthropicResponse(val content: List<AnthropicContentBlock> = emptyList()) {
+    fun text(): String = content.firstOrNull { it.type == "text" }?.text ?: ""
 }
