@@ -19,7 +19,11 @@ private val logger = LoggerFactory.getLogger("kg.vitkas.rag.pipeline.AnthropicCl
 
 class AnthropicClient(private val client: HttpClient, private val config: AppConfig) {
 
-    suspend fun complete(system: String, userMessage: String): Result<String> = runCatching {
+    suspend fun complete(
+        system: String,
+        userMessage: String,
+        maxTokens: Int = config.anthropic.maxTokens
+    ): Result<String> = runCatching {
         logger.debug("Calling Anthropic API, model={}", config.anthropic.model)
         val httpResponse = client.post(config.anthropic.url) {
             contentType(ContentType.Application.Json)
@@ -28,7 +32,7 @@ class AnthropicClient(private val client: HttpClient, private val config: AppCon
             setBody(
                 AnthropicRequest(
                     model = config.anthropic.model,
-                    maxTokens = config.anthropic.maxTokens,
+                    maxTokens = maxTokens,
                     system = system,
                     messages = listOf(AnthropicMessage(role = "user", content = userMessage))
                 )

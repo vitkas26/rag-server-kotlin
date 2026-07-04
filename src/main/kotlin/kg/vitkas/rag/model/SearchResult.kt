@@ -29,7 +29,7 @@ data class IndexResponse(val fixedChunks: Int, val sectionChunks: Int, val durat
 data class ErrorResponse(val error: String)
 
 @Serializable
-data class AskRequest(val question: String, val topK: Int = 3)
+data class AskRequest(val question: String, val topK: Int = 3, val threshold: Float = 0.0f)
 
 @Serializable
 data class Source(val chunkId: String, val title: String, val score: Double)
@@ -42,3 +42,30 @@ data class AskNoRagRequest(val question: String)
 
 @Serializable
 data class AskNoRagResponse(val answer: String, val mode: String = "no_rag")
+
+@Serializable
+data class AskRerankedRequest(val question: String, val topK: Int = 5, val threshold: Float = 0.55f)
+
+@Serializable
+data class AskRerankedResponse(
+    val answer: String,
+    val originalQuestion: String,
+    val rewrittenQuestion: String,
+    val sources: List<Source>,
+    val mode: String = "rag_reranked"
+)
+
+@Serializable
+data class CompareRequest(val question: String, val topK: Int = 5, val threshold: Float = 0.55f)
+
+@Serializable
+data class OriginalSearch(val query: String, val results: List<Source>)
+
+@Serializable
+data class FilteredSearch(val query: String, val threshold: Float, val results: List<Source>)
+
+@Serializable
+data class RerankedSearch(val originalQuery: String, val rewrittenQuery: String, val results: List<Source>)
+
+@Serializable
+data class CompareResponse(val original: OriginalSearch, val filtered: FilteredSearch, val reranked: RerankedSearch)
