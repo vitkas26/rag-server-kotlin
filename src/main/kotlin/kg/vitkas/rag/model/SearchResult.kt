@@ -38,10 +38,13 @@ data class Source(val chunkId: String, val title: String, val score: Double)
 data class Citation(val text: String, val source: String)
 
 @Serializable
+data class Day24Source(val chunkId: String, val title: String, val section: String, val score: Double)
+
+@Serializable
 data class AskResponse(
     val answer: String,
     val citations: List<Citation> = emptyList(),
-    val sources: List<Source>,
+    val sources: List<Day24Source>,
     val mode: String = "rag"
 )
 
@@ -82,6 +85,6 @@ data class CompareResponse(val original: OriginalSearch, val filtered: FilteredS
 data class AskDay24Response(
     val answer: String,
     val citations: List<Citation>,
-    val sources: List<Source>,
+    val sources: List<Day24Source>,
     val mode: String
 )

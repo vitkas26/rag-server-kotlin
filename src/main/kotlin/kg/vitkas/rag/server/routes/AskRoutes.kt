@@ -14,6 +14,7 @@ import kg.vitkas.rag.model.AskRerankedResponse
 import kg.vitkas.rag.model.AskResponse
 import kg.vitkas.rag.model.AskDay24Response
 import kg.vitkas.rag.model.Citation
+import kg.vitkas.rag.model.Day24Source
 import kg.vitkas.rag.model.CompareRequest
 import kg.vitkas.rag.model.CompareResponse
 import kg.vitkas.rag.model.FilteredSearch
@@ -67,12 +68,16 @@ private fun buildRagUserMessage(question: String, chunks: List<SearchResult>): S
 
 private fun SearchResult.toSource() = Source(chunkId = chunkId, title = title, score = score)
 
+private fun SearchResult.toDay24Source() = Day24Source(chunkId = chunkId, title = title, section = section, score = score)
+
 private fun scorePercent(score: Double): String = "%.1f".format(score * 100)
 
 private val SECTION_REGEX = Regex("""\[([А-ЯA-Z]+)\]\s*\n(.*?)(?=\n\[[А-ЯA-Z]+\]|\z)""", RegexOption.DOT_MATCHES_ALL)
 private val CITATION_LINE_REGEX = Regex("""^-\s*"(.+?)"\s*—\s*(.+)$""")
 
-private data class ParsedAnswer(val answer: String, val citations: List<Citation>)
+private data class ParsedAnswer(val answer: String, val citations: List<Citation>) {
+    val isDontKnow: Boolean get() = answer.startsWith("НЕ ЗНАЮ")
+}
 
 private fun parseDay24Answer(raw: String): ParsedAnswer {
     val trimmed = raw.trim()
@@ -89,6 +94,21 @@ private fun parseDay24Answer(raw: String): ParsedAnswer {
         ?: emptyList()
 
     return ParsedAnswer(answer, citations)
+}
+
+private const val MIN_CITATIONS = 2
+
+private fun normalizeForMatch(s: String): String = s.replace(Regex("""\s+"""), " ").trim()
+
+private fun verifyCitations(citations: List<Citation>, chunks: List<SearchResult>): List<Citation> {
+    val normalizedContents = chunks.map { normalizeForMatch(it.content) }
+    return citations.filter { citation ->
+        val found = normalizedContents.any { it.contains(normalizeForMatch(citation.text)) }
+        if (!found) {
+            logger.warn("🔵 RAG_DAY24 [INVARIANT] цитата не найдена дословно в контексте, отброшена: \"{}\" — {}", citation.text, citation.source)
+        }
+        found
+    }
 }
 
 fun Route.askRoutes(
@@ -135,19 +155,25 @@ fun Route.askRoutes(
         }
 
         val parsed = parseDay24Answer(rawAnswer)
-        val sources = filtered.map { it.toSource() }
+        val mode = if (parsed.isDontKnow) "no_context" else "rag_with_citations"
+        val citations = if (parsed.isDontKnow) emptyList() else verifyCitations(parsed.citations, filtered)
+        val sources = if (parsed.isDontKnow) emptyList() else filtered.map { it.toDay24Source() }
+
+        if (mode == "rag_with_citations" && citations.size < MIN_CITATIONS) {
+            logger.warn("🔵 RAG_DAY24 [INVARIANT] мало цитат после проверки: {} (минимум {})", citations.size, MIN_CITATIONS)
+        }
 
         logger.info(
             "🔵 RAG_DAY22 [RAG] question={} sources=[{}]",
             req.question,
             sources.joinToString(", ") { it.chunkId }
         )
-        logger.info("🔵 RAG_DAY24 [CITATIONS] found={} цитат в ответе", parsed.citations.size)
-        logger.info("🔵 RAG_DAY24 [ANSWER] mode={}", "rag_with_citations")
+        logger.info("🔵 RAG_DAY24 [CITATIONS] found={} цитат в ответе", citations.size)
+        logger.info("🔵 RAG_DAY24 [ANSWER] mode={}", mode)
 
         call.respond(
             HttpStatusCode.OK,
-            AskResponse(answer = parsed.answer, citations = parsed.citations, sources = sources, mode = "rag_with_citations")
+            AskResponse(answer = parsed.answer, citations = citations, sources = sources, mode = mode)
         )
     }
 
@@ -247,14 +273,20 @@ fun Route.askRoutes(
         }
 
         val parsed = parseDay24Answer(rawAnswer)
-        val sources = filtered.map { it.toSource() }
+        val mode = if (parsed.isDontKnow) "no_context" else "rag_with_citations"
+        val citations = if (parsed.isDontKnow) emptyList() else verifyCitations(parsed.citations, filtered)
+        val sources = if (parsed.isDontKnow) emptyList() else filtered.map { it.toDay24Source() }
 
-        logger.info("🔵 RAG_DAY24 [CITATIONS] found={} цитат в ответе", parsed.citations.size)
-        logger.info("🔵 RAG_DAY24 [ANSWER] mode={}", "rag_with_citations")
+        if (mode == "rag_with_citations" && citations.size < MIN_CITATIONS) {
+            logger.warn("🔵 RAG_DAY24 [INVARIANT] мало цитат после проверки: {} (минимум {})", citations.size, MIN_CITATIONS)
+        }
+
+        logger.info("🔵 RAG_DAY24 [CITATIONS] found={} цитат в ответе", citations.size)
+        logger.info("🔵 RAG_DAY24 [ANSWER] mode={}", mode)
 
         call.respond(
             HttpStatusCode.OK,
-            AskDay24Response(answer = parsed.answer, citations = parsed.citations, sources = sources, mode = "rag_with_citations")
+            AskDay24Response(answer = parsed.answer, citations = citations, sources = sources, mode = mode)
         )
     }
 
