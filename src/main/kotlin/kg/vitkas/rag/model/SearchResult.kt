@@ -35,7 +35,15 @@ data class AskRequest(val question: String, val topK: Int = 3, val threshold: Fl
 data class Source(val chunkId: String, val title: String, val score: Double)
 
 @Serializable
-data class AskResponse(val answer: String, val sources: List<Source>, val mode: String = "rag")
+data class Citation(val text: String, val source: String)
+
+@Serializable
+data class AskResponse(
+    val answer: String,
+    val citations: List<Citation> = emptyList(),
+    val sources: List<Source>,
+    val mode: String = "rag"
+)
 
 @Serializable
 data class AskNoRagRequest(val question: String)
@@ -69,3 +77,11 @@ data class RerankedSearch(val originalQuery: String, val rewrittenQuery: String,
 
 @Serializable
 data class CompareResponse(val original: OriginalSearch, val filtered: FilteredSearch, val reranked: RerankedSearch)
+
+@Serializable
+data class AskDay24Response(
+    val answer: String,
+    val citations: List<Citation>,
+    val sources: List<Source>,
+    val mode: String
+)

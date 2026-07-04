@@ -12,6 +12,8 @@ import kg.vitkas.rag.model.AskRequest
 import kg.vitkas.rag.model.AskRerankedRequest
 import kg.vitkas.rag.model.AskRerankedResponse
 import kg.vitkas.rag.model.AskResponse
+import kg.vitkas.rag.model.AskDay24Response
+import kg.vitkas.rag.model.Citation
 import kg.vitkas.rag.model.CompareRequest
 import kg.vitkas.rag.model.CompareResponse
 import kg.vitkas.rag.model.FilteredSearch
@@ -35,7 +37,28 @@ private const val NO_RAG_SYSTEM_PROMPT = """Ты AI-ассистент мент�
 
 private const val QUERY_REWRITE_SYSTEM_PROMPT = """Ты помогаешь улучшить поисковый запрос для базы знаний по системе Сюцай Жаната Кожамжарова. Перефразируй вопрос пользователя в краткий поисковый запрос (1-2 предложения) с ключевыми терминами Сюцай: число личности, число миссии, матрица, вектор эго, компетенции, тонкий интеллект. Верни ТОЛЬКО переформулированный запрос, без пояснений и кавычек."""
 
-private const val NOT_FOUND_MESSAGE = "Не найдено релевантных фрагментов в базе знаний по вашему запросу. Попробуйте переформулировать вопрос."
+private const val NO_CONTEXT_MESSAGE = "НЕ ЗНАЮ: В базе знаний не найдено релевантной информации. Попробуйте переформулировать вопрос или снизить порог similarity."
+
+private const val DAY24_SYSTEM_PROMPT = """Ты AI-ассистент ментора по системе Сюцай (методология Жаната Кожамжарова). Отвечай СТРОГО на основе предоставленного контекста.
+
+ОБЯЗАТЕЛЬНЫЙ ФОРМАТ ОТВЕТА (всегда, без исключений):
+
+[ОТВЕТ]
+{твой ответ на вопрос, 2-4 предложения}
+
+[ЦИТАТЫ]
+- "{дословная цитата из контекста, 1-2 предложения}" — {название раздела}
+- "{ещё одна цитата}" — {название раздела}
+
+[ИСТОЧНИКИ]
+- {название раздела 1}
+- {название раздела 2}
+
+ПРАВИЛА:
+1. Цитаты должны быть дословными фрагментами из контекста, не пересказом. Минимум 2 цитаты в каждом ответе.
+2. Источники — только те разделы из которых взята информация.
+3. Если в контексте нет ответа на вопрос — написать ТОЛЬКО: "НЕ ЗНАЮ: В базе знаний не найдено релевантной информации по данному вопросу. Пожалуйста, уточните вопрос или задайте его в контексте системы Сюцай." И ничего больше — никаких домыслов из общих знаний.
+4. Никогда не добавляй информацию которой нет в контексте."""
 
 private fun buildRagUserMessage(question: String, chunks: List<SearchResult>): String {
     val context = chunks.joinToString("\n\n---\n\n") { "[${it.title}]\n${it.content}" }
@@ -45,6 +68,28 @@ private fun buildRagUserMessage(question: String, chunks: List<SearchResult>): S
 private fun SearchResult.toSource() = Source(chunkId = chunkId, title = title, score = score)
 
 private fun scorePercent(score: Double): String = "%.1f".format(score * 100)
+
+private val SECTION_REGEX = Regex("""\[([А-ЯA-Z]+)\]\s*\n(.*?)(?=\n\[[А-ЯA-Z]+\]|\z)""", RegexOption.DOT_MATCHES_ALL)
+private val CITATION_LINE_REGEX = Regex("""^-\s*"(.+?)"\s*—\s*(.+)$""")
+
+private data class ParsedAnswer(val answer: String, val citations: List<Citation>)
+
+private fun parseDay24Answer(raw: String): ParsedAnswer {
+    val trimmed = raw.trim()
+    if (trimmed.startsWith("НЕ ЗНАЮ")) {
+        return ParsedAnswer(answer = trimmed, citations = emptyList())
+    }
+
+    val sections = SECTION_REGEX.findAll(trimmed).associate { it.groupValues[1] to it.groupValues[2].trim() }
+
+    val answer = sections["ОТВЕТ"] ?: trimmed
+    val citations = sections["ЦИТАТЫ"]
+        ?.lines()
+        ?.mapNotNull { line -> CITATION_LINE_REGEX.find(line.trim())?.let { m -> Citation(text = m.groupValues[1], source = m.groupValues[2].trim()) } }
+        ?: emptyList()
+
+    return ParsedAnswer(answer, citations)
+}
 
 fun Route.askRoutes(
     embeddingService: EmbeddingService,
@@ -72,27 +117,38 @@ fun Route.askRoutes(
         )
 
         if (filtered.isEmpty()) {
+            logger.info(
+                "🔵 RAG_DAY24 [NO_CONTEXT] вопрос отклонён — нет релевантных чанков, threshold={}",
+                req.threshold
+            )
             call.respond(
                 HttpStatusCode.OK,
-                AskResponse(answer = NOT_FOUND_MESSAGE, sources = emptyList(), mode = "rag_filtered")
+                AskResponse(answer = NO_CONTEXT_MESSAGE, citations = emptyList(), sources = emptyList(), mode = "no_context")
             )
             return@post
         }
 
         val userMessage = buildRagUserMessage(req.question, filtered)
 
-        val answer = anthropicClient.complete(RAG_SYSTEM_PROMPT, userMessage).getOrElse { e ->
+        val rawAnswer = anthropicClient.complete(DAY24_SYSTEM_PROMPT, userMessage).getOrElse { e ->
             throw RagError.AnthropicError("Failed to get answer from Anthropic: ${e.message}", e)
         }
 
+        val parsed = parseDay24Answer(rawAnswer)
         val sources = filtered.map { it.toSource() }
+
         logger.info(
             "🔵 RAG_DAY22 [RAG] question={} sources=[{}]",
             req.question,
             sources.joinToString(", ") { it.chunkId }
         )
+        logger.info("🔵 RAG_DAY24 [CITATIONS] found={} цитат в ответе", parsed.citations.size)
+        logger.info("🔵 RAG_DAY24 [ANSWER] mode={}", "rag_with_citations")
 
-        call.respond(HttpStatusCode.OK, AskResponse(answer = answer, sources = sources, mode = "rag"))
+        call.respond(
+            HttpStatusCode.OK,
+            AskResponse(answer = parsed.answer, citations = parsed.citations, sources = sources, mode = "rag_with_citations")
+        )
     }
 
     post("/ask-no-rag") {
@@ -146,6 +202,59 @@ fun Route.askRoutes(
                 sources = sources,
                 mode = "rag_reranked"
             )
+        )
+    }
+
+    post("/ask-day24") {
+        val req  = call.receive<AskRerankedRequest>()
+        val topK = req.topK.coerceIn(1, 20)
+
+        val rewritten = anthropicClient.complete(QUERY_REWRITE_SYSTEM_PROMPT, req.question, maxTokens = 100)
+            .getOrElse { e -> throw RagError.AnthropicError("Failed to rewrite query: ${e.message}", e) }
+            .trim()
+
+        logger.info("🔵 RAG_DAY24 [REWRITE] original={} rewritten={}", req.question, rewritten)
+
+        val queryEmbedding = embeddingService.embedQuery(rewritten).getOrElse { e ->
+            throw RagError.EmbeddingError("Failed to embed query: ${e.message}", e)
+        }
+
+        val results = repo.search(queryEmbedding, "chunks_by_section", topK)
+        if (results.isEmpty()) {
+            throw RagError.NotIndexedError("No chunks found — run POST /index first")
+        }
+
+        val filtered = results.filter { it.score >= req.threshold }
+        logger.info("🔵 RAG_DAY24 [RERANKED] before={} after={}", results.size, filtered.size)
+
+        if (filtered.isEmpty()) {
+            logger.info(
+                "🔵 RAG_DAY24 [NO_CONTEXT] вопрос отклонён — нет релевантных чанков, threshold={}",
+                req.threshold
+            )
+            logger.info("🔵 RAG_DAY24 [ANSWER] mode={}", "no_context")
+            call.respond(
+                HttpStatusCode.OK,
+                AskDay24Response(answer = NO_CONTEXT_MESSAGE, citations = emptyList(), sources = emptyList(), mode = "no_context")
+            )
+            return@post
+        }
+
+        val userMessage = buildRagUserMessage(req.question, filtered)
+
+        val rawAnswer = anthropicClient.complete(DAY24_SYSTEM_PROMPT, userMessage).getOrElse { e ->
+            throw RagError.AnthropicError("Failed to get answer from Anthropic: ${e.message}", e)
+        }
+
+        val parsed = parseDay24Answer(rawAnswer)
+        val sources = filtered.map { it.toSource() }
+
+        logger.info("🔵 RAG_DAY24 [CITATIONS] found={} цитат в ответе", parsed.citations.size)
+        logger.info("🔵 RAG_DAY24 [ANSWER] mode={}", "rag_with_citations")
+
+        call.respond(
+            HttpStatusCode.OK,
+            AskDay24Response(answer = parsed.answer, citations = parsed.citations, sources = sources, mode = "rag_with_citations")
         )
     }
 
