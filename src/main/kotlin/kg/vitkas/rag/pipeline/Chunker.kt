@@ -52,13 +52,13 @@ fun chunkByFixedSize(text: String, config: RagConfig): List<Chunk> {
 fun chunkBySection(sections: List<Section>, config: RagConfig): List<Chunk> {
     val chunks = mutableListOf<Chunk>()
 
-    sections.forEach { section ->
+    sections.forEachIndexed { sectionIndex, section ->
         val words = section.content.split(Regex("\\s+")).filter { it.isNotBlank() }
 
         if (words.size <= config.sectionMax) {
             chunks.add(
                 Chunk(
-                    chunkId   = "section_${section.number}_0",
+                    chunkId   = "section_${sectionIndex}_0",
                     source    = config.mdPath,
                     strategy  = "by_structure",
                     title     = section.title,
@@ -75,7 +75,7 @@ fun chunkBySection(sections: List<Section>, config: RagConfig): List<Chunk> {
                 val subWords = words.subList(start, end)
                 chunks.add(
                     Chunk(
-                        chunkId   = "section_${section.number}_$subIndex",
+                        chunkId   = "section_${sectionIndex}_$subIndex",
                         source    = config.mdPath,
                         strategy  = "by_structure",
                         title     = "${section.title} (часть ${subIndex + 1})",

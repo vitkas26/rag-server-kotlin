@@ -55,7 +55,7 @@ data class AskNoRagRequest(val question: String)
 data class AskNoRagResponse(val answer: String, val mode: String = "no_rag")
 
 @Serializable
-data class AskRerankedRequest(val question: String, val topK: Int = 5, val threshold: Float = 0.55f)
+data class AskRerankedRequest(val question: String, val topK: Int = 8, val threshold: Float = 0.55f)
 
 @Serializable
 data class AskRerankedResponse(
