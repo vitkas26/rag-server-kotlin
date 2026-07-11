@@ -33,6 +33,29 @@ data class OllamaResponse(
 }
 
 @Serializable
+data class OllamaChatMessage(val role: String, val content: String)
+
+@Serializable
+data class OllamaChatOptions(@SerialName("num_predict") val numPredict: Int)
+
+@Serializable
+data class OllamaChatRequest(
+    val model: String,
+    val messages: List<OllamaChatMessage>,
+    val stream: Boolean = false,
+    val options: OllamaChatOptions? = null
+)
+
+@Serializable
+data class OllamaChatResponseMessage(val role: String = "assistant", val content: String = "")
+
+@Serializable
+data class OllamaChatResponse(
+    val message: OllamaChatResponseMessage? = null,
+    val done: Boolean = true
+)
+
+@Serializable
 data class AnthropicMessage(val role: String, val content: String)
 
 @Serializable

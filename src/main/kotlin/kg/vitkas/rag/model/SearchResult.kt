@@ -88,3 +88,30 @@ data class AskDay24Response(
     val sources: List<Day24Source>,
     val mode: String
 )
+
+@Serializable
+data class AskDay28Response(
+    val answer: String,
+    val citations: List<Citation>,
+    val sources: List<Day24Source>,
+    val mode: String,
+    val source: String = "local",
+    val elapsedRewriteMs: Long,
+    val elapsedGenerationMs: Long,
+    val elapsedTotalMs: Long
+)
+
+@Serializable
+data class CloudAskResult(
+    val answer: String,
+    val citations: List<Citation>,
+    val sources: List<Day24Source>,
+    val mode: String,
+    val source: String = "cloud",
+    val elapsedRewriteMs: Long,
+    val elapsedGenerationMs: Long,
+    val elapsedTotalMs: Long
+)
+
+@Serializable
+data class CompareLocalCloudResponse(val cloud: CloudAskResult, val local: AskDay28Response)
