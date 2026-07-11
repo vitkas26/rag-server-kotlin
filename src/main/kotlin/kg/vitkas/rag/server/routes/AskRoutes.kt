@@ -13,7 +13,10 @@ import kg.vitkas.rag.model.AskRerankedRequest
 import kg.vitkas.rag.model.AskRerankedResponse
 import kg.vitkas.rag.model.AskResponse
 import kg.vitkas.rag.model.AskDay24Response
+import kg.vitkas.rag.model.AskDay28Response
 import kg.vitkas.rag.model.Citation
+import kg.vitkas.rag.model.CloudAskResult
+import kg.vitkas.rag.model.CompareLocalCloudResponse
 import kg.vitkas.rag.model.Day24Source
 import kg.vitkas.rag.model.CompareRequest
 import kg.vitkas.rag.model.CompareResponse
@@ -26,6 +29,7 @@ import kg.vitkas.rag.model.Source
 import kg.vitkas.rag.pipeline.AnthropicClient
 import kg.vitkas.rag.pipeline.EmbeddingService
 import kg.vitkas.rag.pipeline.IndexRepository
+import kg.vitkas.rag.pipeline.OllamaGenerationClient
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import org.slf4j.LoggerFactory
@@ -111,10 +115,75 @@ private fun verifyCitations(citations: List<Citation>, chunks: List<SearchResult
     }
 }
 
+private const val GENERATION_MAX_TOKENS = 1024
+
+// Общий пайплайн day24 (rewrite → embed → search → filter → generate → parse), параметризован
+// LLM-клиентом — используется /ask-local и /compare-local-cloud (день 28). /ask-day24 не трогаем.
+private data class Day28PipelineResult(
+    val parsed: ParsedAnswer,
+    val filtered: List<SearchResult>,
+    val rewrittenQuestion: String,
+    val elapsedRewriteMs: Long,
+    val elapsedGenerationMs: Long
+)
+
+private suspend fun runDay24Pipeline(
+    question: String,
+    topK: Int,
+    threshold: Float,
+    embeddingService: EmbeddingService,
+    repo: IndexRepository,
+    complete: suspend (system: String, userMessage: String, maxTokens: Int) -> Result<String>,
+    mapError: (String, Throwable) -> RagError
+): Day28PipelineResult {
+    val rewriteStart = System.currentTimeMillis()
+    val rewritten = complete(QUERY_REWRITE_SYSTEM_PROMPT, question, 100)
+        .getOrElse { e -> throw mapError("Failed to rewrite query: ${e.message}", e) }
+        .trim()
+    val elapsedRewriteMs = System.currentTimeMillis() - rewriteStart
+
+    val queryEmbedding = embeddingService.embedQuery(rewritten).getOrElse { e ->
+        throw RagError.EmbeddingError("Failed to embed query: ${e.message}", e)
+    }
+
+    val results = repo.search(queryEmbedding, "chunks_by_section", topK)
+    if (results.isEmpty()) {
+        throw RagError.NotIndexedError("No chunks found — run POST /index first")
+    }
+
+    val filtered = results.filter { it.score >= threshold }
+
+    if (filtered.isEmpty()) {
+        return Day28PipelineResult(
+            parsed = ParsedAnswer(NO_CONTEXT_MESSAGE, emptyList()),
+            filtered = filtered,
+            rewrittenQuestion = rewritten,
+            elapsedRewriteMs = elapsedRewriteMs,
+            elapsedGenerationMs = 0L
+        )
+    }
+
+    val userMessage = buildRagUserMessage(question, filtered)
+
+    val generationStart = System.currentTimeMillis()
+    val rawAnswer = complete(DAY24_SYSTEM_PROMPT, userMessage, GENERATION_MAX_TOKENS)
+        .getOrElse { e -> throw mapError("Failed to get answer: ${e.message}", e) }
+    val elapsedGenerationMs = System.currentTimeMillis() - generationStart
+
+    return Day28PipelineResult(
+        parsed = parseDay24Answer(rawAnswer),
+        filtered = filtered,
+        rewrittenQuestion = rewritten,
+        elapsedRewriteMs = elapsedRewriteMs,
+        elapsedGenerationMs = elapsedGenerationMs
+    )
+}
+
 fun Route.askRoutes(
     embeddingService: EmbeddingService,
     repo: IndexRepository,
     anthropicClient: AnthropicClient,
+    ollamaGenerationClient: OllamaGenerationClient,
     config: AppConfig
 ) {
     post("/ask") {
@@ -385,6 +454,125 @@ fun Route.askRoutes(
                         originalQuery = req.question,
                         rewrittenQuery = rewrittenQuestion,
                         results = rerankedFiltered.map { it.toSource() }
+                    )
+                )
+            )
+        }
+    }
+
+    post("/ask-local") {
+        val req  = call.receive<AskRerankedRequest>()
+        val topK = req.topK.coerceIn(1, 20)
+
+        val totalStart = System.currentTimeMillis()
+        val result = runDay24Pipeline(
+            question = req.question,
+            topK = topK,
+            threshold = req.threshold,
+            embeddingService = embeddingService,
+            repo = repo,
+            complete = ollamaGenerationClient::complete,
+            mapError = { msg, e -> RagError.OllamaGenerationError(msg, e) }
+        )
+        val elapsedTotalMs = System.currentTimeMillis() - totalStart
+
+        val mode = if (result.parsed.isDontKnow) "no_context" else "rag_with_citations"
+        val citations = if (result.parsed.isDontKnow) emptyList() else verifyCitations(result.parsed.citations, result.filtered)
+        val sources = if (result.parsed.isDontKnow) emptyList() else result.filtered.map { it.toDay24Source() }
+
+        logger.info(
+            "🔵 RAG_DAY28 [ASK_LOCAL] question={} rewritten={} mode={} rewriteMs={} genMs={} totalMs={}",
+            req.question, result.rewrittenQuestion, mode, result.elapsedRewriteMs, result.elapsedGenerationMs, elapsedTotalMs
+        )
+
+        call.respond(
+            HttpStatusCode.OK,
+            AskDay28Response(
+                answer = result.parsed.answer,
+                citations = citations,
+                sources = sources,
+                mode = mode,
+                source = "local",
+                elapsedRewriteMs = result.elapsedRewriteMs,
+                elapsedGenerationMs = result.elapsedGenerationMs,
+                elapsedTotalMs = elapsedTotalMs
+            )
+        )
+    }
+
+    post("/compare-local-cloud") {
+        val req  = call.receive<AskRerankedRequest>()
+        val topK = req.topK.coerceIn(1, 20)
+
+        logger.info("🔵 RAG_DAY28 [COMPARE_LOCAL_CLOUD] question={}", req.question)
+
+        coroutineScope {
+            val cloudDeferred = async {
+                val start = System.currentTimeMillis()
+                val result = runDay24Pipeline(
+                    question = req.question,
+                    topK = topK,
+                    threshold = req.threshold,
+                    embeddingService = embeddingService,
+                    repo = repo,
+                    complete = anthropicClient::complete,
+                    mapError = { msg, e -> RagError.AnthropicError(msg, e) }
+                )
+                result to (System.currentTimeMillis() - start)
+            }
+
+            val localDeferred = async {
+                val start = System.currentTimeMillis()
+                val result = runDay24Pipeline(
+                    question = req.question,
+                    topK = topK,
+                    threshold = req.threshold,
+                    embeddingService = embeddingService,
+                    repo = repo,
+                    complete = ollamaGenerationClient::complete,
+                    mapError = { msg, e -> RagError.OllamaGenerationError(msg, e) }
+                )
+                result to (System.currentTimeMillis() - start)
+            }
+
+            val (cloudResult, cloudTotalMs) = cloudDeferred.await()
+            val (localResult, localTotalMs) = localDeferred.await()
+
+            val cloudMode = if (cloudResult.parsed.isDontKnow) "no_context" else "rag_with_citations"
+            val cloudCitations = if (cloudResult.parsed.isDontKnow) emptyList() else verifyCitations(cloudResult.parsed.citations, cloudResult.filtered)
+            val cloudSources = if (cloudResult.parsed.isDontKnow) emptyList() else cloudResult.filtered.map { it.toDay24Source() }
+
+            val localMode = if (localResult.parsed.isDontKnow) "no_context" else "rag_with_citations"
+            val localCitations = if (localResult.parsed.isDontKnow) emptyList() else verifyCitations(localResult.parsed.citations, localResult.filtered)
+            val localSources = if (localResult.parsed.isDontKnow) emptyList() else localResult.filtered.map { it.toDay24Source() }
+
+            logger.info(
+                "🔵 RAG_DAY28 [COMPARE_LOCAL_CLOUD] cloud totalMs={} local totalMs={}",
+                cloudTotalMs, localTotalMs
+            )
+
+            call.respond(
+                HttpStatusCode.OK,
+                CompareLocalCloudResponse(
+                    cloud = CloudAskResult(
+                        answer = cloudResult.parsed.answer,
+                        citations = cloudCitations,
+                        sources = cloudSources,
+                        mode = cloudMode,
+                        source = "cloud",
+                        elapsedRewriteMs = cloudResult.elapsedRewriteMs,
+                        elapsedGenerationMs = cloudResult.elapsedGenerationMs,
+                        elapsedTotalMs = cloudTotalMs
+                    ),
+                    local = AskDay28Response(
+                        answer = localResult.parsed.answer,
+                        citations = localCitations,
+                        sources = localSources,
+                        mode = localMode,
+                        source = "local",
+                        elapsedRewriteMs = localResult.elapsedRewriteMs,
+                        elapsedGenerationMs = localResult.elapsedGenerationMs,
+                        elapsedTotalMs = localTotalMs
                     )
                 )
             )

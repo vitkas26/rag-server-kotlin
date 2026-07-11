@@ -19,6 +19,7 @@ import kg.vitkas.rag.model.RagError
 import kg.vitkas.rag.pipeline.AnthropicClient
 import kg.vitkas.rag.pipeline.EmbeddingService
 import kg.vitkas.rag.pipeline.IndexRepository
+import kg.vitkas.rag.pipeline.OllamaGenerationClient
 import kg.vitkas.rag.server.routes.askRoutes
 import kg.vitkas.rag.server.routes.indexRoutes
 import kg.vitkas.rag.server.routes.searchRoutes
@@ -30,6 +31,11 @@ fun Application.module() {
     val httpClient = HttpClient(CIO) {
         install(ClientContentNegotiation) {
             json(Json { ignoreUnknownKeys = true })
+        }
+        // CIO default requestTimeout=15000ms — локальная генерация на 7B модели с RAG-контекстом
+        // может занимать дольше, особенно на холодном старте модели в Ollama.
+        engine {
+            requestTimeout = 120_000
         }
     }
     monitor.subscribe(ApplicationStopped) { httpClient.close() }
@@ -54,9 +60,13 @@ fun Application.module() {
     val indexRepository  = IndexRepository(config)
     val anthropicClient  = AnthropicClient(httpClient, config)
 
+    // ollama.url — полный путь до /api/embeddings; для /api/chat нужен базовый адрес сервера.
+    val ollamaBaseUrl = config.ollama.url.removeSuffix("/api/embeddings")
+    val ollamaGenerationClient = OllamaGenerationClient(httpClient, ollamaBaseUrl, config.ollama.generationModel)
+
     routing {
         indexRoutes(embeddingService, indexRepository, config)
         searchRoutes(embeddingService, indexRepository, config)
-        askRoutes(embeddingService, indexRepository, anthropicClient, config)
+        askRoutes(embeddingService, indexRepository, anthropicClient, ollamaGenerationClient, config)
     }
 }

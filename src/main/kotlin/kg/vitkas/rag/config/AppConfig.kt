@@ -2,7 +2,7 @@ package kg.vitkas.rag.config
 
 import io.ktor.server.config.ApplicationConfig
 
-data class OllamaConfig(val url: String, val model: String)
+data class OllamaConfig(val url: String, val model: String, val generationModel: String)
 
 data class RagConfig(
     val dbPath: String,
@@ -25,8 +25,9 @@ data class AppConfig(val ollama: OllamaConfig, val rag: RagConfig, val anthropic
     companion object {
         fun from(config: ApplicationConfig): AppConfig = AppConfig(
             ollama = OllamaConfig(
-                url   = config.property("ollama.url").getString(),
-                model = config.property("ollama.model").getString()
+                url             = config.property("ollama.url").getString(),
+                model           = config.property("ollama.model").getString(),
+                generationModel = config.property("ollama.generationModel").getString()
             ),
             rag = RagConfig(
                 dbPath       = config.property("rag.dbPath").getString(),
@@ -47,8 +48,9 @@ data class AppConfig(val ollama: OllamaConfig, val rag: RagConfig, val anthropic
 
         fun fromDefaults(): AppConfig = AppConfig(
             ollama = OllamaConfig(
-                url   = System.getenv("OLLAMA_URL") ?: "http://localhost:11434/api/embeddings",
-                model = "nomic-embed-text"
+                url             = System.getenv("OLLAMA_URL") ?: "http://localhost:11434/api/embeddings",
+                model           = "nomic-embed-text",
+                generationModel = System.getenv("OLLAMA_GENERATION_MODEL") ?: "qwen2.5-coder:7b"
             ),
             rag = RagConfig(
                 dbPath       = "rag_index.db",
