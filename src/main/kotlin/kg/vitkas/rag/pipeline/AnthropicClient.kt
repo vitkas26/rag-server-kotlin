@@ -22,12 +22,16 @@ class AnthropicClient(private val client: HttpClient, private val config: AppCon
     suspend fun complete(
         system: String,
         userMessage: String,
-        maxTokens: Int = config.anthropic.maxTokens
+        maxTokens: Int = config.anthropic.maxTokens,
+        // null → берём ключ из конфига (env ANTHROPIC_API_KEY / application.conf). Задан —
+        // используется только для этого вызова, конфиг не трогаем (per-request override
+        // из веб-морды, см. заголовок X-Anthropic-Api-Key в AskRoutes.kt).
+        apiKeyOverride: String? = null
     ): Result<String> = runCatching {
         logger.debug("Calling Anthropic API, model={}", config.anthropic.model)
         val httpResponse = client.post(config.anthropic.url) {
             contentType(ContentType.Application.Json)
-            header("x-api-key", config.anthropic.apiKey)
+            header("x-api-key", apiKeyOverride ?: config.anthropic.apiKey)
             header("anthropic-version", config.anthropic.version)
             setBody(
                 AnthropicRequest(

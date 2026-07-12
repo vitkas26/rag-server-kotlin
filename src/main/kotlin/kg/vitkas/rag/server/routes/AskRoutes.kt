@@ -302,6 +302,7 @@ fun Route.askRoutes(
     post("/ask") {
         val req  = call.receive<AskRequest>()
         val topK = req.topK.coerceIn(1, 20)
+        val anthropicApiKeyOverride = call.request.headers["X-Anthropic-Api-Key"]?.takeIf { it.isNotBlank() }
 
         val queryEmbedding = embeddingService.embedQuery(req.question).getOrElse { e ->
             throw RagError.EmbeddingError("Failed to embed query: ${e.message}", e)
@@ -332,7 +333,7 @@ fun Route.askRoutes(
 
         val userMessage = buildRagUserMessage(req.question, filtered)
 
-        val rawAnswer = anthropicClient.complete(DAY24_SYSTEM_PROMPT, userMessage).getOrElse { e ->
+        val rawAnswer = anthropicClient.complete(DAY24_SYSTEM_PROMPT, userMessage, apiKeyOverride = anthropicApiKeyOverride).getOrElse { e ->
             throw RagError.AnthropicError("Failed to get answer from Anthropic: ${e.message}", e)
         }
 
@@ -361,8 +362,9 @@ fun Route.askRoutes(
 
     post("/ask-no-rag") {
         val req = call.receive<AskNoRagRequest>()
+        val anthropicApiKeyOverride = call.request.headers["X-Anthropic-Api-Key"]?.takeIf { it.isNotBlank() }
 
-        val answer = anthropicClient.complete(NO_RAG_SYSTEM_PROMPT, req.question).getOrElse { e ->
+        val answer = anthropicClient.complete(NO_RAG_SYSTEM_PROMPT, req.question, apiKeyOverride = anthropicApiKeyOverride).getOrElse { e ->
             throw RagError.AnthropicError("Failed to get answer from Anthropic: ${e.message}", e)
         }
 
@@ -374,8 +376,9 @@ fun Route.askRoutes(
     post("/ask-reranked") {
         val req  = call.receive<AskRerankedRequest>()
         val topK = req.topK.coerceIn(1, 20)
+        val anthropicApiKeyOverride = call.request.headers["X-Anthropic-Api-Key"]?.takeIf { it.isNotBlank() }
 
-        val rewritten = anthropicClient.complete(QUERY_REWRITE_SYSTEM_PROMPT, req.question, maxTokens = 100)
+        val rewritten = anthropicClient.complete(QUERY_REWRITE_SYSTEM_PROMPT, req.question, maxTokens = 100, apiKeyOverride = anthropicApiKeyOverride)
             .getOrElse { e -> throw RagError.AnthropicError("Failed to rewrite query: ${e.message}", e) }
             .trim()
 
@@ -395,7 +398,7 @@ fun Route.askRoutes(
 
         val userMessage = buildRagUserMessage(req.question, filtered)
 
-        val answer = anthropicClient.complete(RAG_SYSTEM_PROMPT, userMessage).getOrElse { e ->
+        val answer = anthropicClient.complete(RAG_SYSTEM_PROMPT, userMessage, apiKeyOverride = anthropicApiKeyOverride).getOrElse { e ->
             throw RagError.AnthropicError("Failed to get answer from Anthropic: ${e.message}", e)
         }
 
@@ -416,8 +419,9 @@ fun Route.askRoutes(
     post("/ask-day24") {
         val req  = call.receive<AskRerankedRequest>()
         val topK = req.topK.coerceIn(1, 20)
+        val anthropicApiKeyOverride = call.request.headers["X-Anthropic-Api-Key"]?.takeIf { it.isNotBlank() }
 
-        val rewritten = anthropicClient.complete(QUERY_REWRITE_SYSTEM_PROMPT, req.question, maxTokens = 100)
+        val rewritten = anthropicClient.complete(QUERY_REWRITE_SYSTEM_PROMPT, req.question, maxTokens = 100, apiKeyOverride = anthropicApiKeyOverride)
             .getOrElse { e -> throw RagError.AnthropicError("Failed to rewrite query: ${e.message}", e) }
             .trim()
 
@@ -450,7 +454,7 @@ fun Route.askRoutes(
 
         val userMessage = buildRagUserMessage(req.question, filtered)
 
-        val rawAnswer = anthropicClient.complete(DAY24_SYSTEM_PROMPT, userMessage).getOrElse { e ->
+        val rawAnswer = anthropicClient.complete(DAY24_SYSTEM_PROMPT, userMessage, apiKeyOverride = anthropicApiKeyOverride).getOrElse { e ->
             throw RagError.AnthropicError("Failed to get answer from Anthropic: ${e.message}", e)
         }
 
@@ -475,6 +479,7 @@ fun Route.askRoutes(
     post("/compare") {
         val req  = call.receive<CompareRequest>()
         val topK = req.topK.coerceIn(1, 20)
+        val anthropicApiKeyOverride = call.request.headers["X-Anthropic-Api-Key"]?.takeIf { it.isNotBlank() }
 
         logger.info("🔵 RAG_DAY23 [COMPARE] ════════════════════════════════")
         logger.info("🔵 RAG_DAY23 [COMPARE] вопрос: {}", req.question)
@@ -489,7 +494,7 @@ fun Route.askRoutes(
             }
 
             val rerankedDeferred = async {
-                val rewritten = anthropicClient.complete(QUERY_REWRITE_SYSTEM_PROMPT, req.question, maxTokens = 100)
+                val rewritten = anthropicClient.complete(QUERY_REWRITE_SYSTEM_PROMPT, req.question, maxTokens = 100, apiKeyOverride = anthropicApiKeyOverride)
                     .getOrElse { e -> throw RagError.AnthropicError("Failed to rewrite query: ${e.message}", e) }
                     .trim()
                 val emb = embeddingService.embedQuery(rewritten).getOrElse { e ->
@@ -616,6 +621,7 @@ fun Route.askRoutes(
     post("/compare-local-cloud") {
         val req  = call.receive<AskRerankedRequest>()
         val topK = req.topK.coerceIn(1, 20)
+        val anthropicApiKeyOverride = call.request.headers["X-Anthropic-Api-Key"]?.takeIf { it.isNotBlank() }
 
         logger.info("🔵 RAG_DAY28 [COMPARE_LOCAL_CLOUD] question={}", req.question)
 
@@ -628,7 +634,9 @@ fun Route.askRoutes(
                     threshold = req.threshold,
                     embeddingService = embeddingService,
                     repo = repo,
-                    complete = anthropicClient::complete,
+                    complete = { system, userMessage, maxTokens ->
+                        anthropicClient.complete(system, userMessage, maxTokens, apiKeyOverride = anthropicApiKeyOverride)
+                    },
                     mapError = { msg, e -> RagError.AnthropicError(msg, e) }
                 )
                 result to (System.currentTimeMillis() - start)

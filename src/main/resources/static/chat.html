@@ -42,7 +42,6 @@
   .wrap { max-width: 820px; margin: 0 auto; }
   h1 { font-size: 1.3rem; margin-bottom: 4px; }
   h2 { font-size: 1rem; margin: 0 0 8px; }
-  .subtitle { color: var(--muted); font-size: 0.85rem; margin-bottom: 20px; }
   .panel {
     background: var(--panel);
     border: 1px solid var(--border);
@@ -82,9 +81,14 @@
     font-size: 0.85rem;
     margin-top: 2px;
   }
-  .intro-panel { border-color: var(--accent-gold); }
-  .intro-panel p { margin: 0 0 10px; font-size: 0.88rem; }
-  .intro-panel p:last-child { margin-bottom: 0; }
+  summary {
+    cursor: pointer;
+    font-weight: 600;
+    font-size: 0.9rem;
+    outline: none;
+  }
+  details[open] summary { margin-bottom: 12px; }
+  .intro-panel p { margin: 10px 0; font-size: 0.88rem; }
   .intro-list {
     margin: 10px 0 0;
     padding: 0;
@@ -115,7 +119,6 @@
     font-size: 0.9rem;
     font-family: inherit;
   }
-  textarea { min-height: 70px; resize: vertical; }
   .row { display: flex; gap: 12px; }
   .row > div { flex: 1; }
   .hint { font-size: 0.75rem; color: var(--muted); margin-top: 2px; }
@@ -127,10 +130,46 @@
   }
   legend { font-size: 0.8rem; color: var(--muted); padding: 0 6px; }
   .hidden { display: none !important; }
-  button {
-    margin-top: 16px;
-    width: 100%;
-    padding: 11px;
+
+  /* Chat */
+  .chat-panel { padding-bottom: 14px; }
+  .chat-thread { margin-bottom: 4px; }
+  .chat-empty { color: var(--muted); font-size: 0.85rem; text-align: center; padding: 20px 0; }
+  .msg { display: flex; margin-bottom: 14px; }
+  .msg.user { justify-content: flex-end; }
+  .msg.assistant { justify-content: flex-start; }
+  .bubble {
+    max-width: 88%;
+    padding: 10px 14px;
+    border-radius: 14px;
+    font-size: 0.88rem;
+  }
+  .msg.user .bubble {
+    background: var(--accent);
+    color: #fff;
+    border-bottom-right-radius: 3px;
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+  .msg.assistant .bubble {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-bottom-left-radius: 3px;
+  }
+  .bubble.pending { color: var(--muted); }
+  .bubble.pending .stage-text { font-size: 0.88rem; }
+  .bubble.pending .timer { font-size: 0.78rem; margin-top: 2px; }
+  .bubble.pending .disclaimer { font-size: 0.68rem; margin-top: 6px; }
+  .bubble.error-bubble { border-color: var(--error); color: var(--error); }
+  .bubble-content .result-row { margin-bottom: 10px; }
+  .bubble-content .result-row:last-child { margin-bottom: 0; }
+
+  .compose-row { display: flex; gap: 8px; align-items: flex-end; margin-top: 4px; }
+  .compose-input { flex: 1; min-height: 44px; max-height: 160px; resize: vertical; margin: 0; }
+  .compose-row button {
+    width: auto;
+    flex-shrink: 0;
+    padding: 11px 18px;
     font-size: 0.95rem;
     font-weight: 600;
     border: none;
@@ -139,22 +178,15 @@
     color: #fff;
     cursor: pointer;
   }
-  button:disabled { opacity: 0.5; cursor: not-allowed; }
-  .status-block { display: none; margin-top: 14px; }
-  .status-block.active { display: block; }
-  .stage-text { font-size: 0.9rem; }
-  .timer { font-size: 0.8rem; color: var(--muted); margin-top: 2px; }
-  .disclaimer { font-size: 0.7rem; color: var(--muted); margin-top: 6px; }
-  .result { margin-top: 16px; display: none; }
-  .result.active { display: block; }
-  .result-row { margin-bottom: 14px; }
+  .compose-row button:disabled { opacity: 0.5; cursor: not-allowed; }
+
   .result-row .k { font-size: 0.75rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.03em; margin-bottom: 3px; }
   .mono {
     font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
     font-size: 0.82rem;
     white-space: pre-wrap;
     word-break: break-word;
-    background: var(--bg);
+    background: var(--panel);
     border: 1px solid var(--border);
     border-radius: 5px;
     padding: 8px 10px;
@@ -164,34 +196,25 @@
     font-size: 0.7rem;
     padding: 2px 8px;
     border-radius: 10px;
-    background: var(--bg);
+    background: var(--panel);
     border: 1px solid var(--border);
     margin-left: 6px;
   }
-  .error-box {
-    display: none;
-    margin-top: 14px;
-    padding: 10px 12px;
-    border-radius: 6px;
-    border: 1px solid var(--error);
-    color: var(--error);
-    font-size: 0.85rem;
-  }
-  .error-box.active { display: block; }
   .citation { margin-bottom: 8px; padding-bottom: 8px; border-bottom: 1px dashed var(--border); }
   .citation:last-child { border-bottom: none; }
   .citation .src { color: var(--muted); font-size: 0.78rem; }
   .source-item { display: flex; justify-content: space-between; padding: 4px 0; font-size: 0.85rem; border-bottom: 1px dashed var(--border); }
   .source-item:last-child { border-bottom: none; }
-  .answer-panel {
+  .answer-card {
     border: 1px solid var(--border);
     border-radius: 6px;
     padding: 12px;
     margin-bottom: 12px;
+    background: var(--panel);
   }
-  .answer-panel:last-child { margin-bottom: 0; }
+  .answer-card:last-child { margin-bottom: 0; }
   .two-col { display: flex; gap: 12px; flex-wrap: wrap; }
-  .two-col > .answer-panel { flex: 1; min-width: 260px; margin-bottom: 0; }
+  .two-col > .answer-card { flex: 1; min-width: 220px; margin-bottom: 0; }
 </style>
 </head>
 <body>
@@ -213,9 +236,10 @@
     </div>
   </div>
 
-  <div class="panel intro-panel">
+  <details class="panel intro-panel">
+    <summary>О странице — что здесь можно узнать</summary>
     <p>Здесь можно позадавать вопросы про нумерологию Сюцай — число личности, число миссии, матрицу рождения, компетенции, число сознания — и посмотреть, как RAG-система ищет ответ в базе знаний и на что при этом опирается.</p>
-    <p>Ниже — выбор из 9 сценариев: от чистого ответа модели без базы знаний до сравнения облачной (Claude) и локальной (Ollama) генерации бок о бок, плюс тонкая настройка параметров локальной модели.</p>
+    <p>В настройках ниже — выбор из 9 сценариев: от чистого ответа модели без базы знаний до сравнения облачной (Claude) и локальной (Ollama) генерации бок о бок, плюс тонкая настройка параметров локальной модели.</p>
     <ul class="intro-list">
       <li>Ответ на вопрос с опорой на базу знаний — или без неё, для сравнения</li>
       <li>Дословные цитаты из источников (не пересказ модели, а проверенные фрагменты текста)</li>
@@ -224,90 +248,93 @@
       <li>Разницу между облачной моделью (Claude) и локальной (Ollama) — качество и скорость</li>
       <li>Как влияют temperature, промпт-шаблон и выбор модели на ответ локальной LLM</li>
     </ul>
-  </div>
+  </details>
 
-  <div class="panel">
-    <form id="askForm">
-      <label for="endpoint">Эндпойнт</label>
-      <select id="endpoint">
-        <option value="ask">/ask — облако (Claude), без rewrite</option>
-        <option value="ask-no-rag">/ask-no-rag — облако, без RAG вообще (общие знания модели)</option>
-        <option value="ask-reranked">/ask-reranked — облако, с query rewrite</option>
-        <option value="ask-day24">/ask-day24 — облако, rewrite + строгие цитаты</option>
-        <option value="compare">/compare — сравнение retrieval: original vs reranked</option>
-        <option value="ask-local" selected>/ask-local — локальная модель (Ollama, без тюнинга)</option>
-        <option value="compare-local-cloud">/compare-local-cloud — облако vs локальная модель, side by side</option>
-        <option value="ask-local-tuned">/ask-local-tuned — локальная модель, ручной тюнинг параметров</option>
-        <option value="ask-local-json">/ask-local-json — локальная модель, constrained JSON output</option>
-      </select>
-      <div class="hint" id="endpointHint"></div>
+  <details class="panel" open>
+    <summary>Настройки запроса</summary>
 
-      <label for="question">Вопрос</label>
-      <textarea id="question" required>Что такое число миссии?</textarea>
+    <label for="endpoint">Эндпойнт</label>
+    <select id="endpoint">
+      <option value="ask">/ask — облако (Claude), без rewrite</option>
+      <option value="ask-no-rag">/ask-no-rag — облако, без RAG вообще (общие знания модели)</option>
+      <option value="ask-reranked">/ask-reranked — облако, с query rewrite</option>
+      <option value="ask-day24">/ask-day24 — облако, rewrite + строгие цитаты</option>
+      <option value="compare">/compare — сравнение retrieval: original vs reranked</option>
+      <option value="ask-local" selected>/ask-local — локальная модель (Ollama, без тюнинга)</option>
+      <option value="compare-local-cloud">/compare-local-cloud — облако vs локальная модель, side by side</option>
+      <option value="ask-local-tuned">/ask-local-tuned — локальная модель, ручной тюнинг параметров</option>
+      <option value="ask-local-json">/ask-local-json — локальная модель, constrained JSON output</option>
+    </select>
+    <div class="hint" id="endpointHint"></div>
 
-      <div class="row" id="basicFieldsRow">
+    <div class="row" id="basicFieldsRow">
+      <div>
+        <label for="topK">topK</label>
+        <input type="number" id="topK" value="5" min="1" max="20" step="1">
+      </div>
+      <div>
+        <label for="threshold">threshold</label>
+        <input type="number" id="threshold" value="0.55" min="0" max="1" step="0.05">
+      </div>
+    </div>
+
+    <fieldset id="tunedFieldset" class="hidden">
+      <legend>Параметры /ask-local-tuned</legend>
+
+      <div class="row">
         <div>
-          <label for="topK">topK</label>
-          <input type="number" id="topK" value="5" min="1" max="20" step="1">
+          <label for="model">model</label>
+          <select id="model">
+            <option value="">(дефолт сервера)</option>
+            <option value="qwen2.5:7b-instruct-q4_0">qwen2.5:7b-instruct-q4_0</option>
+            <option value="qwen2.5:7b-instruct">qwen2.5:7b-instruct</option>
+          </select>
         </div>
         <div>
-          <label for="threshold">threshold</label>
-          <input type="number" id="threshold" value="0.55" min="0" max="1" step="0.05">
+          <label for="temperature">temperature (опц.)</label>
+          <input type="number" id="temperature" placeholder="напр. 0.1" min="0" max="2" step="0.05">
         </div>
       </div>
 
-      <fieldset id="tunedFieldset" class="hidden">
-        <legend>Параметры /ask-local-tuned</legend>
+      <label for="promptVariant">Промпт-вариант</label>
+      <select id="promptVariant">
+        <option value="default">по умолчанию (DAY24_SYSTEM_PROMPT)</option>
+        <option value="optimized">useOptimizedPrompt=true (few-shot, строгая дословность)</option>
+        <option value="soft_quote">soft_quote (few-shot, мягкая дословность)</option>
+      </select>
+    </fieldset>
 
-        <div class="row">
-          <div>
-            <label for="model">model</label>
-            <select id="model">
-              <option value="">(дефолт сервера)</option>
-              <option value="qwen2.5:7b-instruct-q4_0">qwen2.5:7b-instruct-q4_0</option>
-              <option value="qwen2.5:7b-instruct">qwen2.5:7b-instruct</option>
-            </select>
-          </div>
-          <div>
-            <label for="temperature">temperature (опц.)</label>
-            <input type="number" id="temperature" placeholder="напр. 0.1" min="0" max="2" step="0.05">
-          </div>
+    <fieldset id="anthropicFieldset" class="hidden">
+      <legend>Anthropic API Key</legend>
+      <label for="anthropicKey">API-ключ (опционально)</label>
+      <input type="password" id="anthropicKey" autocomplete="off" placeholder="sk-ant-...">
+      <div class="hint">Этот эндпойнт ходит в Claude. Если оставить пустым — сервер использует свой ключ из конфига (если он там задан). Ключ уходит только в заголовок запроса, никуда не сохраняется.</div>
+    </fieldset>
+
+    <fieldset>
+      <legend>Basic Auth</legend>
+      <div class="row">
+        <div>
+          <label for="authUser">Логин</label>
+          <input type="text" id="authUser" autocomplete="username" placeholder="demo">
         </div>
-
-        <label for="promptVariant">Промпт-вариант</label>
-        <select id="promptVariant">
-          <option value="default">по умолчанию (DAY24_SYSTEM_PROMPT)</option>
-          <option value="optimized">useOptimizedPrompt=true (few-shot, строгая дословность)</option>
-          <option value="soft_quote">soft_quote (few-shot, мягкая дословность)</option>
-        </select>
-      </fieldset>
-
-      <fieldset>
-        <legend>Basic Auth</legend>
-        <div class="row">
-          <div>
-            <label for="authUser">Логин</label>
-            <input type="text" id="authUser" autocomplete="username" placeholder="demo">
-          </div>
-          <div>
-            <label for="authPass">Пароль</label>
-            <input type="password" id="authPass" autocomplete="current-password" placeholder="demo123">
-          </div>
+        <div>
+          <label for="authPass">Пароль</label>
+          <input type="password" id="authPass" autocomplete="current-password" placeholder="demo123">
         </div>
-      </fieldset>
+      </div>
+    </fieldset>
+  </details>
 
-      <button type="submit" id="submitBtn">Отправить</button>
-    </form>
-
-    <div class="status-block" id="statusBlock">
-      <div class="stage-text" id="stageText">Отправляем запрос...</div>
-      <div class="timer" id="timerText">Прошло: 0 сек</div>
-      <div class="disclaimer">Этапы приблизительные, based on typical timing — не настоящий backend-статус, эндпойнт блокирующий.</div>
+  <div class="panel chat-panel">
+    <div class="chat-thread" id="chatThread">
+      <div class="chat-empty" id="chatEmpty">Задайте вопрос ниже — например, «Что такое число миссии?»</div>
     </div>
 
-    <div class="error-box" id="errorBox"></div>
-
-    <div class="result" id="resultBlock"></div>
+    <form id="composeForm" class="compose-row">
+      <textarea id="question" class="compose-input" placeholder="Что такое число миссии?" required></textarea>
+      <button type="submit" id="submitBtn">Отправить</button>
+    </form>
   </div>
 </div>
 
@@ -318,32 +345,30 @@
   //   'question-only' -> {question}                     (/ask-no-rag)
   //   'basic'         -> {question, topK?, threshold?}   (все остальные, кроме tuned)
   //   'tuned'         -> полный AskLocalTunedRequest      (/ask-local-tuned)
+  // usesAnthropic — эндпойнт ходит в Claude, показываем поле для API-ключа (см. X-Anthropic-Api-Key
+  // ниже и AnthropicClient.complete(apiKeyOverride) на бэкенде).
   const ENDPOINTS = {
-    'ask':                 { path: '/ask',                 shape: 'basic',        hint: 'AskResponse: answer + citations + sources (Anthropic, без переформулировки запроса).' },
-    'ask-no-rag':          { path: '/ask-no-rag',           shape: 'question-only', hint: 'Без RAG вообще — модель отвечает из общих знаний, без базы знаний Сюцай.' },
-    'ask-reranked':        { path: '/ask-reranked',         shape: 'basic',        hint: 'С query rewrite перед поиском, но без строгого формата цитат.' },
-    'ask-day24':           { path: '/ask-day24',            shape: 'basic',        hint: 'Rewrite + строгие дословные цитаты (минимум 2), облако.' },
-    'compare':             { path: '/compare',              shape: 'basic',        hint: 'Сравнение retrieval: original vs reranked query — без генерации ответа.' },
-    'ask-local':            { path: '/ask-local',            shape: 'basic',        hint: 'Тот же пайплайн что /ask-day24, но локальная модель через Ollama.' },
-    'compare-local-cloud': { path: '/compare-local-cloud',  shape: 'basic',        hint: 'Параллельно облако и локальная модель на одном вопросе — сравнение вживую.' },
-    'ask-local-tuned':      { path: '/ask-local-tuned',      shape: 'tuned',        hint: 'Локальная модель с ручными параметрами генерации и выбором промпта.' },
-    'ask-local-json':       { path: '/ask-local-json',       shape: 'basic',        hint: 'Локальная модель, ответ форматируется как JSON (Ollama format=json).' }
+    'ask':                 { path: '/ask',                 shape: 'basic',        usesAnthropic: true,  hint: 'AskResponse: answer + citations + sources (Anthropic, без переформулировки запроса).' },
+    'ask-no-rag':          { path: '/ask-no-rag',           shape: 'question-only', usesAnthropic: true,  hint: 'Без RAG вообще — модель отвечает из общих знаний, без базы знаний Сюцай.' },
+    'ask-reranked':        { path: '/ask-reranked',         shape: 'basic',        usesAnthropic: true,  hint: 'С query rewrite перед поиском, но без строгого формата цитат.' },
+    'ask-day24':           { path: '/ask-day24',            shape: 'basic',        usesAnthropic: true,  hint: 'Rewrite + строгие дословные цитаты (минимум 2), облако.' },
+    'compare':             { path: '/compare',              shape: 'basic',        usesAnthropic: true,  hint: 'Сравнение retrieval: original vs reranked query — без генерации ответа.' },
+    'ask-local':            { path: '/ask-local',            shape: 'basic',        usesAnthropic: false, hint: 'Тот же пайплайн что /ask-day24, но локальная модель через Ollama.' },
+    'compare-local-cloud': { path: '/compare-local-cloud',  shape: 'basic',        usesAnthropic: true,  hint: 'Параллельно облако и локальная модель на одном вопросе — сравнение вживую.' },
+    'ask-local-tuned':      { path: '/ask-local-tuned',      shape: 'tuned',        usesAnthropic: false, hint: 'Локальная модель с ручными параметрами генерации и выбором промпта.' },
+    'ask-local-json':       { path: '/ask-local-json',       shape: 'basic',        usesAnthropic: false, hint: 'Локальная модель, ответ форматируется как JSON (Ollama format=json).' }
   };
 
-  const form = document.getElementById('askForm');
+  const composeForm = document.getElementById('composeForm');
+  const questionEl = document.getElementById('question');
   const endpointSelect = document.getElementById('endpoint');
   const endpointHint = document.getElementById('endpointHint');
   const basicFieldsRow = document.getElementById('basicFieldsRow');
   const tunedFieldset = document.getElementById('tunedFieldset');
+  const anthropicFieldset = document.getElementById('anthropicFieldset');
   const submitBtn = document.getElementById('submitBtn');
-  const statusBlock = document.getElementById('statusBlock');
-  const stageText = document.getElementById('stageText');
-  const timerText = document.getElementById('timerText');
-  const errorBox = document.getElementById('errorBox');
-  const resultBlock = document.getElementById('resultBlock');
-
-  let timerHandle = null;
-  let startTime = null;
+  const chatThread = document.getElementById('chatThread');
+  const chatEmpty = document.getElementById('chatEmpty');
 
   function currentEndpoint() {
     return ENDPOINTS[endpointSelect.value];
@@ -354,9 +379,56 @@
     endpointHint.textContent = ep.hint;
     basicFieldsRow.classList.toggle('hidden', ep.shape === 'question-only');
     tunedFieldset.classList.toggle('hidden', ep.shape !== 'tuned');
+    anthropicFieldset.classList.toggle('hidden', !ep.usesAnthropic);
   }
   endpointSelect.addEventListener('change', updateFormForEndpoint);
   updateFormForEndpoint();
+
+  // Enter отправляет, Shift+Enter — перенос строки (обычное чат-поведение).
+  questionEl.addEventListener('keydown', function (ev) {
+    if (ev.key === 'Enter' && !ev.shiftKey) {
+      ev.preventDefault();
+      composeForm.requestSubmit();
+    }
+  });
+
+  function scrollToBottom() {
+    window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
+  }
+
+  function addUserBubble(text) {
+    if (chatEmpty) chatEmpty.remove();
+    const msg = document.createElement('div');
+    msg.className = 'msg user';
+    const bubble = document.createElement('div');
+    bubble.className = 'bubble';
+    bubble.textContent = text;
+    msg.appendChild(bubble);
+    chatThread.appendChild(msg);
+    return msg;
+  }
+
+  function addPendingAssistantBubble() {
+    const msg = document.createElement('div');
+    msg.className = 'msg assistant';
+    const bubble = document.createElement('div');
+    bubble.className = 'bubble pending';
+    const stageText = document.createElement('div');
+    stageText.className = 'stage-text';
+    stageText.textContent = 'Отправляем запрос...';
+    const timer = document.createElement('div');
+    timer.className = 'timer';
+    timer.textContent = 'Прошло: 0 сек';
+    const disclaimer = document.createElement('div');
+    disclaimer.className = 'disclaimer';
+    disclaimer.textContent = 'Этапы приблизительные, based on typical timing — не настоящий backend-статус, эндпойнт блокирующий.';
+    bubble.appendChild(stageText);
+    bubble.appendChild(timer);
+    bubble.appendChild(disclaimer);
+    msg.appendChild(bubble);
+    chatThread.appendChild(msg);
+    return { msg: msg, bubble: bubble, stageText: stageText, timer: timer };
+  }
 
   function stageForElapsed(sec) {
     if (sec < 3) return 'Отправляем запрос...';
@@ -365,40 +437,15 @@
     return 'Генерируем ответ (может занять несколько минут на этом сервере)...';
   }
 
-  function startTimer() {
-    startTime = Date.now();
-    statusBlock.classList.add('active');
-    tick();
-    timerHandle = setInterval(tick, 500);
-  }
-
-  function tick() {
-    const sec = Math.floor((Date.now() - startTime) / 1000);
-    stageText.textContent = stageForElapsed(sec);
-    timerText.textContent = 'Прошло: ' + sec + ' сек';
-  }
-
-  function stopTimer() {
-    if (timerHandle) {
-      clearInterval(timerHandle);
-      timerHandle = null;
+  function startPendingTimer(pending) {
+    const startTime = Date.now();
+    function tick() {
+      const sec = Math.floor((Date.now() - startTime) / 1000);
+      pending.stageText.textContent = stageForElapsed(sec);
+      pending.timer.textContent = 'Прошло: ' + sec + ' сек';
     }
-    statusBlock.classList.remove('active');
-  }
-
-  function showError(msg) {
-    errorBox.textContent = msg;
-    errorBox.classList.add('active');
-  }
-
-  function hideError() {
-    errorBox.classList.remove('active');
-    errorBox.textContent = '';
-  }
-
-  function hideResult() {
-    resultBlock.classList.remove('active');
-    resultBlock.innerHTML = '';
+    tick();
+    return setInterval(tick, 500);
   }
 
   function el(className, text) {
@@ -408,13 +455,14 @@
     return e;
   }
 
-  // Панель с одним "ответом" — общий вид для /ask, /ask-no-rag, /ask-reranked, /ask-day24,
-  // /ask-local, /ask-local-tuned, /ask-local-json — поля кроме answer у них опциональны,
-  // рендерим то, что реально пришло, остальное молча пропускаем.
-  function buildAnswerPanel(title, data) {
-    const panel = el('answer-panel');
+  // Общий вид одного "ответа" — /ask, /ask-no-rag, /ask-reranked, /ask-day24, /ask-local,
+  // /ask-local-tuned, /ask-local-json. Поля кроме answer опциональны, рендерим то, что реально
+  // пришло. asCard=true — рисуем как отдельную карточку с заголовком (для two-col сравнения),
+  // asCard=false — просто строки внутрь текущего пузыря чата (пузырь уже сам как карточка).
+  function buildAnswerContent(title, data, asCard) {
+    const panel = asCard ? el('answer-card') : el('bubble-content');
 
-    if (title) {
+    if (asCard && title) {
       const h = document.createElement('h2');
       h.textContent = title;
       if (data.mode) {
@@ -496,8 +544,8 @@
   }
 
   // /compare — три списка source (без генерации ответа): original / filtered / reranked.
-  function buildSourceListPanel(title, subtitle, results) {
-    const panel = el('answer-panel');
+  function buildSourceListCard(title, subtitle, results) {
+    const panel = el('answer-card');
     const h = document.createElement('h2');
     h.textContent = title;
     panel.appendChild(h);
@@ -519,25 +567,25 @@
     return panel;
   }
 
-  function renderResponse(data) {
-    resultBlock.innerHTML = '';
+  function buildResponseContent(data) {
+    const container = document.createElement('div');
 
     if (data && data.cloud && data.local) {
       // /compare-local-cloud
-      const container = el('two-col');
-      container.appendChild(buildAnswerPanel('Облако (Claude)', data.cloud));
-      container.appendChild(buildAnswerPanel('Локально (Ollama)', data.local));
-      resultBlock.appendChild(container);
+      const twoCol = el('two-col');
+      twoCol.appendChild(buildAnswerContent('Облако (Claude)', data.cloud, true));
+      twoCol.appendChild(buildAnswerContent('Локально (Ollama)', data.local, true));
+      container.appendChild(twoCol);
     } else if (data && data.original && data.filtered && data.reranked) {
       // /compare — только retrieval, без генерации
-      resultBlock.appendChild(buildSourceListPanel('Original retrieval', 'query: ' + data.original.query, data.original.results));
-      resultBlock.appendChild(buildSourceListPanel('Filtered (threshold=' + data.filtered.threshold + ')', null, data.filtered.results));
-      resultBlock.appendChild(buildSourceListPanel('Reranked retrieval', 'rewritten query: ' + data.reranked.rewrittenQuery, data.reranked.results));
+      container.appendChild(buildSourceListCard('Original retrieval', 'query: ' + data.original.query, data.original.results));
+      container.appendChild(buildSourceListCard('Filtered (threshold=' + data.filtered.threshold + ')', null, data.filtered.results));
+      container.appendChild(buildSourceListCard('Reranked retrieval', 'rewritten query: ' + data.reranked.rewrittenQuery, data.reranked.results));
     } else {
-      resultBlock.appendChild(buildAnswerPanel(null, data));
+      container.appendChild(buildAnswerContent(null, data, false));
     }
 
-    resultBlock.classList.add('active');
+    return container;
   }
 
   function buildTunedPayload(question) {
@@ -564,9 +612,8 @@
     return payload;
   }
 
-  function buildPayload() {
+  function buildPayload(question) {
     const ep = currentEndpoint();
-    const question = document.getElementById('question').value;
 
     if (ep.shape === 'question-only') {
       return { question: question };
@@ -583,25 +630,37 @@
     return payload;
   }
 
-  form.addEventListener('submit', function (ev) {
+  composeForm.addEventListener('submit', function (ev) {
     ev.preventDefault();
-    hideError();
-    hideResult();
+
+    const question = questionEl.value.trim();
+    if (!question) return;
 
     const ep = currentEndpoint();
     const user = document.getElementById('authUser').value;
     const pass = document.getElementById('authPass').value;
-    const payload = buildPayload();
+    const payload = buildPayload(question);
+
+    const headers = {
+      'Content-Type': 'application/json',
+      'Authorization': 'Basic ' + btoa(user + ':' + pass)
+    };
+    if (ep.usesAnthropic) {
+      const anthropicKey = document.getElementById('anthropicKey').value;
+      if (anthropicKey !== '') headers['X-Anthropic-Api-Key'] = anthropicKey;
+    }
+
+    addUserBubble(question);
+    questionEl.value = '';
+    const pending = addPendingAssistantBubble();
+    const timerHandle = startPendingTimer(pending);
+    scrollToBottom();
 
     submitBtn.disabled = true;
-    startTimer();
 
     fetch(ep.path, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': 'Basic ' + btoa(user + ':' + pass)
-      },
+      headers: headers,
       body: JSON.stringify(payload)
     })
       .then(function (res) {
@@ -621,18 +680,20 @@
         return res.json();
       })
       .then(function (data) {
-        renderResponse(data);
+        pending.bubble.className = 'bubble';
+        pending.bubble.innerHTML = '';
+        pending.bubble.appendChild(buildResponseContent(data));
       })
       .catch(function (err) {
-        if (err && err.known) {
-          showError(err.message);
-        } else {
-          showError('Не удалось связаться с сервером: ' + (err && err.message ? err.message : err));
-        }
+        const message = (err && err.known) ? err.message : 'Не удалось связаться с сервером: ' + (err && err.message ? err.message : err);
+        pending.bubble.className = 'bubble error-bubble';
+        pending.bubble.innerHTML = '';
+        pending.bubble.appendChild(el(null, message));
       })
       .finally(function () {
-        stopTimer();
+        clearInterval(timerHandle);
         submitBtn.disabled = false;
+        scrollToBottom();
       });
   });
 })();
