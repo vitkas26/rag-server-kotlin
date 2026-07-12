@@ -7,7 +7,7 @@ set -e
 VPS_IP="138.16.155.105"
 VPS_USER="root"
 VPS_PATH="/opt/rag-day21"
-BRANCH="ai_advent_day29_local_llm_optimization"
+BRANCH="ai_advent_day30_local_llm_deploy"
 OLLAMA_MODEL="qwen2.5:7b-instruct-q4_0"
 
 SSH="ssh ${VPS_USER}@${VPS_IP}"
