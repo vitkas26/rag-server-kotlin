@@ -1,0 +1,402 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>rag-day21 — /ask-local-tuned тест</title>
+<style>
+  :root {
+    color-scheme: light dark;
+    --bg: #f7f7f8;
+    --panel: #ffffff;
+    --border: #ddd;
+    --text: #1a1a1a;
+    --muted: #666;
+    --accent: #2b6cb0;
+    --error: #c0392b;
+    --ok: #1e7a34;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #121212;
+      --panel: #1c1c1e;
+      --border: #333;
+      --text: #eee;
+      --muted: #999;
+      --accent: #6fa8dc;
+      --error: #ff6b6b;
+      --ok: #4caf50;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    padding: 24px;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    line-height: 1.4;
+  }
+  .wrap { max-width: 760px; margin: 0 auto; }
+  h1 { font-size: 1.3rem; margin-bottom: 4px; }
+  .subtitle { color: var(--muted); font-size: 0.85rem; margin-bottom: 20px; }
+  .panel {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 18px;
+    margin-bottom: 16px;
+  }
+  label { display: block; font-size: 0.85rem; font-weight: 600; margin-bottom: 4px; margin-top: 12px; }
+  label:first-child { margin-top: 0; }
+  textarea, input, select {
+    width: 100%;
+    padding: 8px 10px;
+    border: 1px solid var(--border);
+    border-radius: 5px;
+    background: var(--bg);
+    color: var(--text);
+    font-size: 0.9rem;
+    font-family: inherit;
+  }
+  textarea { min-height: 70px; resize: vertical; }
+  .row { display: flex; gap: 12px; }
+  .row > div { flex: 1; }
+  .hint { font-size: 0.75rem; color: var(--muted); margin-top: 2px; }
+  fieldset {
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    margin-top: 14px;
+    padding: 10px 12px;
+  }
+  legend { font-size: 0.8rem; color: var(--muted); padding: 0 6px; }
+  button {
+    margin-top: 16px;
+    width: 100%;
+    padding: 11px;
+    font-size: 0.95rem;
+    font-weight: 600;
+    border: none;
+    border-radius: 6px;
+    background: var(--accent);
+    color: #fff;
+    cursor: pointer;
+  }
+  button:disabled { opacity: 0.5; cursor: not-allowed; }
+  .status-block { display: none; margin-top: 14px; }
+  .status-block.active { display: block; }
+  .stage-text { font-size: 0.9rem; }
+  .timer { font-size: 0.8rem; color: var(--muted); margin-top: 2px; }
+  .disclaimer { font-size: 0.7rem; color: var(--muted); margin-top: 6px; }
+  .result { margin-top: 16px; display: none; }
+  .result.active { display: block; }
+  .result-row { margin-bottom: 10px; }
+  .result-row .k { font-size: 0.75rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.03em; margin-bottom: 3px; }
+  .mono {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 0.82rem;
+    white-space: pre-wrap;
+    word-break: break-word;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 5px;
+    padding: 8px 10px;
+  }
+  .badge {
+    display: inline-block;
+    font-size: 0.7rem;
+    padding: 2px 8px;
+    border-radius: 10px;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    margin-left: 6px;
+  }
+  .error-box {
+    display: none;
+    margin-top: 14px;
+    padding: 10px 12px;
+    border-radius: 6px;
+    border: 1px solid var(--error);
+    color: var(--error);
+    font-size: 0.85rem;
+  }
+  .error-box.active { display: block; }
+  .citation { margin-bottom: 8px; padding-bottom: 8px; border-bottom: 1px dashed var(--border); }
+  .citation:last-child { border-bottom: none; }
+  .citation .src { color: var(--muted); font-size: 0.78rem; }
+  .source-item { display: flex; justify-content: space-between; padding: 4px 0; font-size: 0.85rem; border-bottom: 1px dashed var(--border); }
+  .source-item:last-child { border-bottom: none; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>/ask-local-tuned — тестовая форма</h1>
+  <div class="subtitle">Локальный RAG через Ollama, живьём из браузера, без curl.</div>
+
+  <div class="panel">
+    <form id="askForm">
+      <label for="question">Вопрос</label>
+      <textarea id="question" required>Что такое число миссии?</textarea>
+
+      <div class="row">
+        <div>
+          <label for="topK">topK</label>
+          <input type="number" id="topK" value="5" min="1" max="20" step="1">
+        </div>
+        <div>
+          <label for="threshold">threshold</label>
+          <input type="number" id="threshold" value="0.55" min="0" max="1" step="0.05">
+        </div>
+      </div>
+
+      <div class="row">
+        <div>
+          <label for="model">model</label>
+          <select id="model">
+            <option value="">(дефолт сервера)</option>
+            <option value="qwen2.5:7b-instruct-q4_0">qwen2.5:7b-instruct-q4_0</option>
+            <option value="qwen2.5:7b-instruct">qwen2.5:7b-instruct</option>
+          </select>
+        </div>
+        <div>
+          <label for="temperature">temperature (опц.)</label>
+          <input type="number" id="temperature" placeholder="напр. 0.1" min="0" max="2" step="0.05">
+        </div>
+      </div>
+
+      <label for="promptVariant">Промпт-вариант</label>
+      <select id="promptVariant">
+        <option value="default">по умолчанию (DAY24_SYSTEM_PROMPT)</option>
+        <option value="optimized">useOptimizedPrompt=true (few-shot, строгая дословность)</option>
+        <option value="soft_quote">soft_quote (few-shot, мягкая дословность)</option>
+      </select>
+
+      <fieldset>
+        <legend>Basic Auth</legend>
+        <div class="row">
+          <div>
+            <label for="authUser">Логин</label>
+            <input type="text" id="authUser" autocomplete="username" placeholder="demo">
+          </div>
+          <div>
+            <label for="authPass">Пароль</label>
+            <input type="password" id="authPass" autocomplete="current-password" placeholder="demo123">
+          </div>
+        </div>
+      </fieldset>
+
+      <button type="submit" id="submitBtn">Отправить</button>
+    </form>
+
+    <div class="status-block" id="statusBlock">
+      <div class="stage-text" id="stageText">Отправляем запрос...</div>
+      <div class="timer" id="timerText">Прошло: 0 сек</div>
+      <div class="disclaimer">Этапы приблизительные, based on typical timing — не настоящий backend-статус, эндпойнт блокирующий.</div>
+    </div>
+
+    <div class="error-box" id="errorBox"></div>
+
+    <div class="result" id="resultBlock">
+      <div class="result-row">
+        <div class="k">Ответ <span class="badge" id="modeBadge"></span></div>
+        <div class="mono" id="answerText"></div>
+      </div>
+      <div class="result-row">
+        <div class="k">Цитаты</div>
+        <div id="citationsList"></div>
+      </div>
+      <div class="result-row">
+        <div class="k">Источники (title / score)</div>
+        <div id="sourcesList"></div>
+      </div>
+      <div class="result-row">
+        <div class="k">Время</div>
+        <div class="mono" id="timingText"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+(function () {
+  const form = document.getElementById('askForm');
+  const submitBtn = document.getElementById('submitBtn');
+  const statusBlock = document.getElementById('statusBlock');
+  const stageText = document.getElementById('stageText');
+  const timerText = document.getElementById('timerText');
+  const errorBox = document.getElementById('errorBox');
+  const resultBlock = document.getElementById('resultBlock');
+
+  let timerHandle = null;
+  let startTime = null;
+
+  function stageForElapsed(sec) {
+    if (sec < 3) return 'Отправляем запрос...';
+    if (sec < 40) return 'Переформулируем вопрос для поиска (rewrite)...';
+    if (sec < 50) return 'Ищем релевантные разделы базы знаний...';
+    return 'Генерируем ответ (может занять несколько минут на этом сервере)...';
+  }
+
+  function startTimer() {
+    startTime = Date.now();
+    statusBlock.classList.add('active');
+    tick();
+    timerHandle = setInterval(tick, 500);
+  }
+
+  function tick() {
+    const sec = Math.floor((Date.now() - startTime) / 1000);
+    stageText.textContent = stageForElapsed(sec);
+    timerText.textContent = 'Прошло: ' + sec + ' сек';
+  }
+
+  function stopTimer() {
+    if (timerHandle) {
+      clearInterval(timerHandle);
+      timerHandle = null;
+    }
+    statusBlock.classList.remove('active');
+  }
+
+  function showError(msg) {
+    errorBox.textContent = msg;
+    errorBox.classList.add('active');
+  }
+
+  function hideError() {
+    errorBox.classList.remove('active');
+    errorBox.textContent = '';
+  }
+
+  function hideResult() {
+    resultBlock.classList.remove('active');
+  }
+
+  function renderResult(data) {
+    document.getElementById('modeBadge').textContent = data.mode || '';
+    document.getElementById('answerText').textContent = data.answer || '(пусто)';
+
+    const citationsList = document.getElementById('citationsList');
+    citationsList.innerHTML = '';
+    if (data.citations && data.citations.length > 0) {
+      data.citations.forEach(function (c) {
+        const div = document.createElement('div');
+        div.className = 'citation';
+        const text = document.createElement('div');
+        text.className = 'mono';
+        text.textContent = '"' + c.text + '"';
+        const src = document.createElement('div');
+        src.className = 'src';
+        src.textContent = '— ' + c.source;
+        div.appendChild(text);
+        div.appendChild(src);
+        citationsList.appendChild(div);
+      });
+    } else {
+      citationsList.innerHTML = '<div class="mono">(нет цитат, прошедших verifyCitations)</div>';
+    }
+
+    const sourcesList = document.getElementById('sourcesList');
+    sourcesList.innerHTML = '';
+    if (data.sources && data.sources.length > 0) {
+      data.sources.forEach(function (s) {
+        const div = document.createElement('div');
+        div.className = 'source-item';
+        const scorePct = (s.score * 100).toFixed(1) + '%';
+        div.innerHTML = '<span>' + s.title + '</span><span class="mono">' + scorePct + '</span>';
+        sourcesList.appendChild(div);
+      });
+    } else {
+      sourcesList.innerHTML = '<div class="mono">(нет источников)</div>';
+    }
+
+    document.getElementById('timingText').textContent =
+      'rewrite: ' + data.elapsedRewriteMs + ' мс, generation: ' + data.elapsedGenerationMs +
+      ' мс, итого: ' + data.elapsedTotalMs + ' мс';
+
+    resultBlock.classList.add('active');
+  }
+
+  function buildPayload() {
+    const payload = {
+      question: document.getElementById('question').value
+    };
+
+    const topK = document.getElementById('topK').value;
+    if (topK !== '') payload.topK = parseInt(topK, 10);
+
+    const threshold = document.getElementById('threshold').value;
+    if (threshold !== '') payload.threshold = parseFloat(threshold);
+
+    const model = document.getElementById('model').value;
+    if (model !== '') payload.model = model;
+
+    const temperature = document.getElementById('temperature').value;
+    if (temperature !== '') payload.temperature = parseFloat(temperature);
+
+    const promptVariant = document.getElementById('promptVariant').value;
+    if (promptVariant === 'optimized') {
+      payload.useOptimizedPrompt = true;
+    } else if (promptVariant === 'soft_quote') {
+      payload.promptVariant = 'soft_quote';
+    }
+    // 'default' -> ничего не добавляем, поля пропускаются целиком.
+
+    return payload;
+  }
+
+  form.addEventListener('submit', function (ev) {
+    ev.preventDefault();
+    hideError();
+    hideResult();
+
+    const user = document.getElementById('authUser').value;
+    const pass = document.getElementById('authPass').value;
+    const payload = buildPayload();
+
+    submitBtn.disabled = true;
+    startTimer();
+
+    fetch('/ask-local-tuned', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Basic ' + btoa(user + ':' + pass)
+      },
+      body: JSON.stringify(payload)
+    })
+      .then(function (res) {
+        if (res.status === 401) {
+          throw { known: true, message: 'Неверный логин или пароль (401 Unauthorized).' };
+        }
+        if (res.status === 429) {
+          throw { known: true, message: 'Превышен лимит запросов — не более 10 в минуту с этого IP. Подождите и попробуйте снова (429).' };
+        }
+        if (!res.ok) {
+          return res.text().then(function (text) {
+            let detail = text;
+            try { detail = JSON.parse(text).error || text; } catch (e) {}
+            throw { known: true, message: 'Ошибка сервера (' + res.status + '): ' + detail };
+          });
+        }
+        return res.json();
+      })
+      .then(function (data) {
+        renderResult(data);
+      })
+      .catch(function (err) {
+        if (err && err.known) {
+          showError(err.message);
+        } else {
+          showError('Не удалось связаться с сервером: ' + (err && err.message ? err.message : err));
+        }
+      })
+      .finally(function () {
+        stopTimer();
+        submitBtn.disabled = false;
+      });
+  });
+})();
+</script>
+</body>
+</html>

@@ -15,6 +15,7 @@ import io.ktor.server.auth.Authentication
 import io.ktor.server.auth.UserIdPrincipal
 import io.ktor.server.auth.authenticate
 import io.ktor.server.auth.basic
+import io.ktor.server.http.content.staticResources
 import io.ktor.server.plugins.calllogging.CallLogging
 import io.ktor.server.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.server.plugins.origin
@@ -106,6 +107,9 @@ fun Application.module() {
     val ollamaGenerationClient = OllamaGenerationClient(httpClient, ollamaBaseUrl, config.ollama.generationModel)
 
     routing {
+        // Вне authenticate{} — страница открывается без Basic Auth, авторизация нужна
+        // только самим fetch()-запросам к /ask-local-tuned из формы, не самой странице.
+        staticResources("/chat", "static")
         indexRoutes(embeddingService, indexRepository, config)
         searchRoutes(embeddingService, indexRepository, config)
         // Basic Auth + rate limit (10 req/min per IP) — только на /ask-*, per задание.
