@@ -2,6 +2,7 @@ package kg.vitkas.rag
 
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.cio.CIO
+import io.ktor.client.plugins.HttpTimeout
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.serialization.kotlinx.json.json
 import io.ktor.server.cio.EngineMain
@@ -30,6 +31,19 @@ private suspend fun runCliIndexing() {
 
     val httpClient = HttpClient(CIO) {
         install(ContentNegotiation) { json(Json { ignoreUnknownKeys = true }) }
+        // HttpTimeout — протокольный таймаут поверх движка, соблюдается независимо от engine{}.
+        // На VPS без GPU генерация эмбеддингов на CPU может занимать дольше дефолтных 15s.
+        install(HttpTimeout) {
+            requestTimeoutMillis = 180_000
+            connectTimeoutMillis = 30_000
+            socketTimeoutMillis = 180_000
+        }
+        // CIO default requestTimeout=15000ms — движковый таймаут, отдельный от HttpTimeout выше.
+        // Держим равным Application.kt (тот же fix для того же сценария), иначе младший из
+        // двух победит и HttpTimeout=180s окажется бессмысленным.
+        engine {
+            requestTimeout = 180_000
+        }
     }
 
     try {
