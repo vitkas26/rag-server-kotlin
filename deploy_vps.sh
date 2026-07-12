@@ -14,7 +14,9 @@ SSH="ssh ${VPS_USER}@${VPS_IP}"
 LOG_FILE="/tmp/rag-day21.log"
 
 echo "=== [1/6] Останавливаю текущий сервер на VPS ==="
-$SSH "pkill -f MainKt || true; pkill -f gradlew || true"
+# [M]ainKt / [g]radlew — брекет-трюк: без него pkill -f матчит СВОЮ ЖЕ командную строку
+# (она содержит текст "gradlew"), убивает свой процесс и рвёт ssh-сессию с exit 255.
+$SSH "pkill -f '[M]ainKt' || true; pkill -f '[g]radlew' || true"
 
 echo "=== [2/6] git pull ветки ${BRANCH} на VPS ==="
 $SSH "cd ${VPS_PATH} && git fetch origin && git checkout ${BRANCH} && git pull origin ${BRANCH}"
