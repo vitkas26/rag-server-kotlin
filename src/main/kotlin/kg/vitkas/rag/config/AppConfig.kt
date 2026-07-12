@@ -50,7 +50,7 @@ data class AppConfig(val ollama: OllamaConfig, val rag: RagConfig, val anthropic
             ollama = OllamaConfig(
                 url             = System.getenv("OLLAMA_URL") ?: "http://localhost:11434/api/embeddings",
                 model           = "nomic-embed-text",
-                generationModel = System.getenv("OLLAMA_GENERATION_MODEL") ?: "qwen2.5-coder:7b"
+                generationModel = System.getenv("OLLAMA_GENERATION_MODEL") ?: "qwen2.5:7b-instruct"
             ),
             rag = RagConfig(
                 dbPath       = "rag_index.db",

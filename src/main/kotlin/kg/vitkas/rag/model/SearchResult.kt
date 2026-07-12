@@ -115,3 +115,61 @@ data class CloudAskResult(
 
 @Serializable
 data class CompareLocalCloudResponse(val cloud: CloudAskResult, val local: AskDay28Response)
+
+@Serializable
+data class AskLocalTunedRequest(
+    val question: String,
+    val topK: Int = 8,   // retrieval topK (сколько чанков достать) — НЕ Ollama sampling top_k, см. ollamaTopK
+    val threshold: Float = 0.55f,
+    val temperature: Double? = null,
+    val numPredict: Int? = null,
+    val numCtx: Int? = null,
+    val topP: Double? = null,
+    val ollamaTopK: Int? = null,   // Ollama sampling top_k — отдельное имя, чтобы не путать с полем topK выше
+    val repeatPenalty: Double? = null,
+    val seed: Int? = null,
+    // legacy — оставлено для обратной совместимости со старыми вызовами; если promptVariant
+    // задан, он побеждает. Используется только когда promptVariant == null.
+    val useOptimizedPrompt: Boolean = false,
+    // "optimized" | "soft_quote" | null (null → useOptimizedPrompt решает, как раньше)
+    val promptVariant: String? = null,
+    val model: String? = null
+)
+
+@Serializable
+data class ContextSizeResponse(
+    val promptEvalCount: Int,
+    val questionLength: Int,
+    val chunksUsed: Int
+)
+
+// Один прогон одного сценария day29-report. Не Serializable — не пересекает HTTP-границу,
+// только сводка (ExperimentSummary) попадает в ответ, сырые прогоны — в лог и в markdown-файл.
+data class ExperimentRun(val citations: Int, val mode: String, val elapsedMs: Long)
+
+@Serializable
+data class ExperimentSummary(
+    val label: String,
+    // -1 → сценарий целиком упал по exception (например модель не найдена), метрика недействительна.
+    // >=0 → реальный success rate (сколько прогонов из totalRuns дали citations>=2), даже если
+    // часть прогонов внутри тоже падала — см. errorMessage.
+    val successCount: Int,
+    val totalRuns: Int,
+    val avgMs: Long,
+    // null → ни один прогон не падал по exception. Non-null → хотя бы один прогон упал —
+    // текст объясняет причину, чтобы "0 успехов из-за отсутствующей модели" не выглядело
+    // как "0 успехов потому что модель не справилась с задачей".
+    val errorMessage: String? = null
+)
+
+@Serializable
+data class Day29ReportRequest(
+    val question: String = "Что такое число миссии?",
+    val runsPerScenario: Int = 5
+)
+
+@Serializable
+data class Day29ReportResponse(
+    val reportPath: String,
+    val summary: List<ExperimentSummary>
+)

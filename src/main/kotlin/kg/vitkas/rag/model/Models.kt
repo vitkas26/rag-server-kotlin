@@ -2,6 +2,7 @@ package kg.vitkas.rag.model
 
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.JsonElement
 
 data class Section(
     val number: Int,
@@ -36,14 +37,26 @@ data class OllamaResponse(
 data class OllamaChatMessage(val role: String, val content: String)
 
 @Serializable
-data class OllamaChatOptions(@SerialName("num_predict") val numPredict: Int)
+data class OllamaChatOptions(
+    val temperature: Double? = null,
+    @SerialName("num_predict") val numPredict: Int? = null,
+    @SerialName("num_ctx") val numCtx: Int? = null,
+    @SerialName("top_p") val topP: Double? = null,
+    @SerialName("top_k") val topK: Int? = null,
+    @SerialName("repeat_penalty") val repeatPenalty: Double? = null,
+    val seed: Int? = null
+)
 
 @Serializable
 data class OllamaChatRequest(
     val model: String,
     val messages: List<OllamaChatMessage>,
     val stream: Boolean = false,
-    val options: OllamaChatOptions? = null
+    val options: OllamaChatOptions? = null,
+    // Ollama constrained-output: "json" гарантирует валидный JSON-синтаксис ответа,
+    // но НЕ гарантирует дословность цитат внутри него и НЕ проверяет структуру полей —
+    // это просто грамматическое ограничение генерации, а не JSON Schema.
+    val format: JsonElement? = null
 )
 
 @Serializable
@@ -52,7 +65,8 @@ data class OllamaChatResponseMessage(val role: String = "assistant", val content
 @Serializable
 data class OllamaChatResponse(
     val message: OllamaChatResponseMessage? = null,
-    val done: Boolean = true
+    val done: Boolean = true,
+    @SerialName("prompt_eval_count") val promptEvalCount: Int? = null
 )
 
 @Serializable

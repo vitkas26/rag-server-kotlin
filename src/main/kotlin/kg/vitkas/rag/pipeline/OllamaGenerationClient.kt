@@ -13,6 +13,7 @@ import kg.vitkas.rag.model.OllamaChatOptions
 import kg.vitkas.rag.model.OllamaChatRequest
 import kg.vitkas.rag.model.OllamaChatResponse
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonElement
 import org.slf4j.LoggerFactory
 
 private val logger = LoggerFactory.getLogger("kg.vitkas.rag.pipeline.OllamaGenerationClient")
@@ -30,11 +31,33 @@ class OllamaGenerationClient(
     suspend fun complete(
         system: String,
         userMessage: String,
-        maxTokens: Int = 1024
+        maxTokens: Int = 1024,
+        options: OllamaChatOptions? = null,
+        modelOverride: String? = null,
+        format: JsonElement? = null
     ): Result<String> = runCatching {
-        logger.debug("Calling Ollama chat API, model={}", model)
-        val body = requestJson.encodeToString(
-            OllamaChatRequest.serializer(),
+        val effectiveModel = modelOverride ?: model
+        logger.debug("Calling Ollama chat API, model={}", effectiveModel)
+        val response = postChat(
+            OllamaChatRequest(
+                model = effectiveModel,
+                messages = listOf(
+                    OllamaChatMessage(role = "system", content = system),
+                    OllamaChatMessage(role = "user", content = userMessage)
+                ),
+                stream = false,
+                options = options ?: OllamaChatOptions(numPredict = maxTokens),
+                format = format
+            )
+        )
+        response.message?.content ?: error("Ollama chat response missing message.content")
+    }
+
+    // Дешёвый способ узнать реальное число токенов промпта (system + user) через Ollama:
+    // num_predict=1 обрезает генерацию, но prompt_eval_count в ответе всё равно посчитан по полному контексту.
+    suspend fun measureContextTokens(system: String, userMessage: String): Result<Int> = runCatching {
+        logger.debug("Measuring context size via Ollama chat API, model={}", model)
+        val response = postChat(
             OllamaChatRequest(
                 model = model,
                 messages = listOf(
@@ -42,9 +65,15 @@ class OllamaGenerationClient(
                     OllamaChatMessage(role = "user", content = userMessage)
                 ),
                 stream = false,
-                options = OllamaChatOptions(numPredict = maxTokens)
+                options = OllamaChatOptions(numPredict = 1)
             )
         )
+        response.promptEvalCount ?: error("Ollama chat response missing prompt_eval_count")
+    }
+
+    private suspend fun postChat(request: OllamaChatRequest): OllamaChatResponse {
+        val body = requestJson.encodeToString(OllamaChatRequest.serializer(), request)
+        logger.debug("Ollama chat request body: {}", body)
         val httpResponse = client.post("$baseUrl/api/chat") {
             contentType(ContentType.Application.Json)
             setBody(body)
@@ -52,7 +81,6 @@ class OllamaGenerationClient(
         check(httpResponse.status.isSuccess()) {
             "Ollama chat API returned ${httpResponse.status}: ${httpResponse.bodyAsText()}"
         }
-        httpResponse.body<OllamaChatResponse>().message?.content
-            ?: error("Ollama chat response missing message.content")
+        return httpResponse.body()
     }
 }

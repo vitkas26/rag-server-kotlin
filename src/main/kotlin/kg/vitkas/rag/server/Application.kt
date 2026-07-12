@@ -21,6 +21,7 @@ import kg.vitkas.rag.pipeline.EmbeddingService
 import kg.vitkas.rag.pipeline.IndexRepository
 import kg.vitkas.rag.pipeline.OllamaGenerationClient
 import kg.vitkas.rag.server.routes.askRoutes
+import kg.vitkas.rag.server.routes.debugRoutes
 import kg.vitkas.rag.server.routes.indexRoutes
 import kg.vitkas.rag.server.routes.searchRoutes
 import kotlinx.serialization.json.Json
@@ -68,5 +69,6 @@ fun Application.module() {
         indexRoutes(embeddingService, indexRepository, config)
         searchRoutes(embeddingService, indexRepository, config)
         askRoutes(embeddingService, indexRepository, anthropicClient, ollamaGenerationClient, config)
+        debugRoutes(embeddingService, indexRepository, ollamaGenerationClient)
     }
 }

@@ -14,10 +14,14 @@ import kg.vitkas.rag.model.AskRerankedResponse
 import kg.vitkas.rag.model.AskResponse
 import kg.vitkas.rag.model.AskDay24Response
 import kg.vitkas.rag.model.AskDay28Response
+import kg.vitkas.rag.model.AskLocalTunedRequest
 import kg.vitkas.rag.model.Citation
 import kg.vitkas.rag.model.CloudAskResult
 import kg.vitkas.rag.model.CompareLocalCloudResponse
 import kg.vitkas.rag.model.Day24Source
+import kg.vitkas.rag.model.Day29ReportRequest
+import kg.vitkas.rag.model.Day29ReportResponse
+import kg.vitkas.rag.model.OllamaChatOptions
 import kg.vitkas.rag.model.CompareRequest
 import kg.vitkas.rag.model.CompareResponse
 import kg.vitkas.rag.model.FilteredSearch
@@ -30,9 +34,18 @@ import kg.vitkas.rag.pipeline.AnthropicClient
 import kg.vitkas.rag.pipeline.EmbeddingService
 import kg.vitkas.rag.pipeline.IndexRepository
 import kg.vitkas.rag.pipeline.OllamaGenerationClient
+import kg.vitkas.rag.pipeline.generateDay29Report
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.booleanOrNull
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import org.slf4j.LoggerFactory
+import java.io.File
 
 private val logger = LoggerFactory.getLogger("kg.vitkas.rag.server.routes.AskRoutes")
 
@@ -40,11 +53,11 @@ private const val RAG_SYSTEM_PROMPT = """Ты AI-ассистент ментор
 
 private const val NO_RAG_SYSTEM_PROMPT = """Ты AI-ассистент ментора по системе Сюцай — авторской методологии Жаната Кожамжарова. Отвечай на вопросы по нумерологии Сюцай."""
 
-private const val QUERY_REWRITE_SYSTEM_PROMPT = """Ты помогаешь улучшить поисковый запрос для базы знаний по системе Сюцай Жаната Кожамжарова. Перефразируй вопрос пользователя в краткий поисковый запрос (1-2 предложения) с ключевыми терминами Сюцай: число личности, число миссии, матрица, вектор эго, компетенции, тонкий интеллект. Верни ТОЛЬКО переформулированный запрос, без пояснений и кавычек."""
+internal const val QUERY_REWRITE_SYSTEM_PROMPT = """Ты помогаешь улучшить поисковый запрос для базы знаний по системе Сюцай Жаната Кожамжарова. Перефразируй вопрос пользователя в краткий поисковый запрос (1-2 предложения) с ключевыми терминами Сюцай: число личности, число миссии, матрица, вектор эго, компетенции, тонкий интеллект. Верни ТОЛЬКО переформулированный запрос, без пояснений и кавычек."""
 
 private const val NO_CONTEXT_MESSAGE = "НЕ ЗНАЮ: В базе знаний не найдено релевантной информации. Попробуйте переформулировать вопрос или снизить порог similarity."
 
-private const val DAY24_SYSTEM_PROMPT = """Ты AI-ассистент ментора по системе Сюцай (методология Жаната Кожамжарова). Отвечай СТРОГО на основе предоставленного контекста.
+internal const val DAY24_SYSTEM_PROMPT = """Ты AI-ассистент ментора по системе Сюцай (методология Жаната Кожамжарова). Отвечай СТРОГО на основе предоставленного контекста.
 
 ОБЯЗАТЕЛЬНЫЙ ФОРМАТ ОТВЕТА (всегда, без исключений):
 
@@ -65,7 +78,77 @@ private const val DAY24_SYSTEM_PROMPT = """Ты AI-ассистент менто
 3. Если в контексте нет ответа на вопрос — написать ТОЛЬКО: "НЕ ЗНАЮ: В базе знаний не найдено релевантной информации по данному вопросу. Пожалуйста, уточните вопрос или задайте его в контексте системы Сюцай." И ничего больше — никаких домыслов из общих знаний.
 4. Никогда не добавляй информацию которой нет в контексте."""
 
-private fun buildRagUserMessage(question: String, chunks: List<SearchResult>): String {
+// Гипотеза для эмпирического сравнения с DAY24_SYSTEM_PROMPT на /ask-local-tuned (useOptimizedPrompt=true):
+// тот же формат ответа, но с явным few-shot примером цитаты и короче/императивнее формулировки —
+// расчёт на то, что маленькой локальной модели легче следовать конкретному примеру, чем абстрактному правилу.
+internal const val LOCAL_OPTIMIZED_SYSTEM_PROMPT = """Ты AI-ассистент ментора по системе Сюцай (методология Жаната Кожамжарова). ТОЛЬКО факты из контекста ниже.
+
+ФОРМАТ ОТВЕТА (обязательно, без исключений):
+
+[ОТВЕТ]
+{2-4 предложения}
+
+[ЦИТАТЫ]
+- "{дословный фрагмент из контекста}" — {название раздела}
+- "{дословный фрагмент из контекста}" — {название раздела}
+
+[ИСТОЧНИКИ]
+- {название раздела}
+
+ПРИМЕР правильной цитаты (формат, не содержание):
+- "Число миссии рассчитывается по сумме дня и месяца рождения без учёта года." — Число миссии и его влияние на реализацию человека
+
+ПРАВИЛА:
+1. Копируй цитаты дословно, символ в символ, из контекста. Не перефразируй.
+2. Минимум 2 цитаты.
+3. Нет ответа в контексте → напиши только: "НЕ ЗНАЮ: В базе знаний не найдено релевантной информации по данному вопросу. Пожалуйста, уточните вопрос или задайте его в контексте системы Сюцай."
+4. Не добавляй ничего вне контекста."""
+
+// Вариант A эксперимента: та же структура что LOCAL_OPTIMIZED_SYSTEM_PROMPT,
+// но правило дословности смягчено ("как можно ближе к тексту" вместо
+// "символ в символ, не перефразируй") при сохранении "минимум 2 цитаты"
+// без изменений — изолирует влияние строгости формулировки от числового
+// требования.
+internal const val LOCAL_SOFT_QUOTE_SYSTEM_PROMPT = """Ты AI-ассистент ментора по системе Сюцай (методология Жаната Кожамжарова). ТОЛЬКО факты из контекста ниже.
+
+ФОРМАТ ОТВЕТА (обязательно, без исключений):
+
+[ОТВЕТ]
+{2-4 предложения}
+
+[ЦИТАТЫ]
+- "{фрагмент из контекста}" — {название раздела}
+- "{фрагмент из контекста}" — {название раздела}
+
+[ИСТОЧНИКИ]
+- {название раздела}
+
+ПРИМЕР правильной цитаты (формат, не содержание):
+- "Число миссии рассчитывается по сумме дня и месяца рождения без учёта года." — Число миссии и его влияние на реализацию человека
+
+ПРАВИЛА:
+1. Приводи цитаты как можно ближе к тексту источника.
+2. Минимум 2 цитаты.
+3. Нет ответа в контексте → напиши только: "НЕ ЗНАЮ: В базе знаний не найдено релевантной информации по данному вопросу. Пожалуйста, уточните вопрос или задайте его в контексте системы Сюцай."
+4. Не добавляй ничего вне контекста."""
+
+// Эксперимент с constrained JSON output (Ollama format="json"): никакой текстовой разметки
+// [ОТВЕТ]/[ЦИТАТЫ]/[ИСТОЧНИКИ], структуру задаёт сам параметр format на уровне Ollama API.
+// ВАЖНО: format="json" гарантирует только валидный JSON-синтаксис ответа (и это гарантирует
+// сама Ollama, не промпт) — он НЕ гарантирует дословность цитат и НЕ проверяет наличие полей,
+// это остаётся на совести модели и всё ещё проверяется verifyCitations() после парсинга.
+internal const val LOCAL_JSON_SYSTEM_PROMPT = """Ты AI-ассистент ментора по системе Сюцай (методология Жаната Кожамжарова). Отвечай СТРОГО на основе предоставленного контекста.
+
+Верни JSON-объект со следующими полями:
+- "answer": string — ответ на вопрос по смыслу, 2-4 предложения
+- "citations": массив объектов {"text": string, "source": string} — дословные цитаты из контекста (символ в символ, без пересказа), минимум 2 цитаты; "source" — название раздела, откуда взята цитата
+- "dont_know": boolean — true, если в контексте нет ответа на вопрос (тогда "answer" и "citations" можно оставить пустыми)
+
+ПРАВИЛА:
+1. Цитаты в "citations" должны быть дословными фрагментами из контекста, не пересказом.
+2. Никогда не добавляй информацию, которой нет в контексте."""
+
+internal fun buildRagUserMessage(question: String, chunks: List<SearchResult>): String {
     val context = chunks.joinToString("\n\n---\n\n") { "[${it.title}]\n${it.content}" }
     return "Контекст из базы знаний:\n$context\n\nВопрос: $question"
 }
@@ -79,7 +162,7 @@ private fun scorePercent(score: Double): String = "%.1f".format(score * 100)
 private val SECTION_REGEX = Regex("""\[([А-ЯA-Z]+)\]\s*\n(.*?)(?=\n\[[А-ЯA-Z]+\]|\z)""", RegexOption.DOT_MATCHES_ALL)
 private val CITATION_LINE_REGEX = Regex("""^-\s*"(.+?)"\s*—\s*(.+)$""")
 
-private data class ParsedAnswer(val answer: String, val citations: List<Citation>) {
+internal data class ParsedAnswer(val answer: String, val citations: List<Citation>) {
     val isDontKnow: Boolean get() = answer.startsWith("НЕ ЗНАЮ")
 }
 
@@ -100,11 +183,33 @@ private fun parseDay24Answer(raw: String): ParsedAnswer {
     return ParsedAnswer(answer, citations)
 }
 
+// Парсер для /ask-local-json: {"answer": string, "citations": [{"text","source"}], "dont_know": boolean}
+// вместо regex-разметки [ОТВЕТ]/[ЦИТАТЫ] — на этот JSON-синтаксис Ollama format="json" уже дал гарантию,
+// но не на содержание полей, поэтому парсинг всё равно defensive (mapNotNull, getOrElse).
+private fun parseJsonAnswer(raw: String): ParsedAnswer = runCatching {
+    val obj = Json.parseToJsonElement(raw.trim()).jsonObject
+    val dontKnow = obj["dont_know"]?.jsonPrimitive?.booleanOrNull ?: false
+    if (dontKnow) {
+        return@runCatching ParsedAnswer(NO_CONTEXT_MESSAGE, emptyList())
+    }
+    val answer = obj["answer"]?.jsonPrimitive?.contentOrNull ?: ""
+    val citations = obj["citations"]?.jsonArray?.mapNotNull { citationElement ->
+        val citationObj = citationElement.jsonObject
+        val text = citationObj["text"]?.jsonPrimitive?.contentOrNull
+        val source = citationObj["source"]?.jsonPrimitive?.contentOrNull
+        if (text != null && source != null) Citation(text = text, source = source) else null
+    } ?: emptyList()
+    ParsedAnswer(answer, citations)
+}.getOrElse { e ->
+    logger.warn("🔵 RAG_DAY30 [JSON_PARSE] не удалось распарсить JSON-ответ: {}", e.message)
+    ParsedAnswer(raw.trim(), emptyList())
+}
+
 private const val MIN_CITATIONS = 2
 
 private fun normalizeForMatch(s: String): String = s.replace(Regex("""\s+"""), " ").trim()
 
-private fun verifyCitations(citations: List<Citation>, chunks: List<SearchResult>): List<Citation> {
+internal fun verifyCitations(citations: List<Citation>, chunks: List<SearchResult>): List<Citation> {
     val normalizedContents = chunks.map { normalizeForMatch(it.content) }
     return citations.filter { citation ->
         val found = normalizedContents.any { it.contains(normalizeForMatch(citation.text)) }
@@ -119,7 +224,7 @@ private const val GENERATION_MAX_TOKENS = 1024
 
 // Общий пайплайн day24 (rewrite → embed → search → filter → generate → parse), параметризован
 // LLM-клиентом — используется /ask-local и /compare-local-cloud (день 28). /ask-day24 не трогаем.
-private data class Day28PipelineResult(
+internal data class Day28PipelineResult(
     val parsed: ParsedAnswer,
     val filtered: List<SearchResult>,
     val rewrittenQuestion: String,
@@ -127,14 +232,22 @@ private data class Day28PipelineResult(
     val elapsedGenerationMs: Long
 )
 
-private suspend fun runDay24Pipeline(
+internal suspend fun runDay24Pipeline(
     question: String,
     topK: Int,
     threshold: Float,
     embeddingService: EmbeddingService,
     repo: IndexRepository,
     complete: suspend (system: String, userMessage: String, maxTokens: Int) -> Result<String>,
-    mapError: (String, Throwable) -> RagError
+    mapError: (String, Throwable) -> RagError,
+    generationSystemPrompt: String = DAY24_SYSTEM_PROMPT,
+    // null → та же complete() используется и для генерации финального ответа (поведение по умолчанию).
+    // Задан отдельно — нужен, чтобы /ask-local-tuned мог применить кастомные OllamaOptions
+    // только к шагу генерации, не трогая rewrite (короткий maxTokens=100 там нельзя обрезать options'ами).
+    completeGeneration: (suspend (system: String, userMessage: String, maxTokens: Int) -> Result<String>)? = null,
+    // По умолчанию — тот же regex-парсер [ОТВЕТ]/[ЦИТАТЫ]/[ИСТОЧНИКИ], которым пользуются
+    // /ask-local и /compare-local-cloud. /ask-local-json подставляет parseJsonAnswer.
+    parseAnswer: (String) -> ParsedAnswer = ::parseDay24Answer
 ): Day28PipelineResult {
     val rewriteStart = System.currentTimeMillis()
     val rewritten = complete(QUERY_REWRITE_SYSTEM_PROMPT, question, 100)
@@ -166,12 +279,12 @@ private suspend fun runDay24Pipeline(
     val userMessage = buildRagUserMessage(question, filtered)
 
     val generationStart = System.currentTimeMillis()
-    val rawAnswer = complete(DAY24_SYSTEM_PROMPT, userMessage, GENERATION_MAX_TOKENS)
+    val rawAnswer = (completeGeneration ?: complete)(generationSystemPrompt, userMessage, GENERATION_MAX_TOKENS)
         .getOrElse { e -> throw mapError("Failed to get answer: ${e.message}", e) }
     val elapsedGenerationMs = System.currentTimeMillis() - generationStart
 
     return Day28PipelineResult(
-        parsed = parseDay24Answer(rawAnswer),
+        parsed = parseAnswer(rawAnswer),
         filtered = filtered,
         rewrittenQuestion = rewritten,
         elapsedRewriteMs = elapsedRewriteMs,
@@ -577,5 +690,171 @@ fun Route.askRoutes(
                 )
             )
         }
+    }
+
+    // Как /ask-local, но параметры генерации (temperature/numPredict/numCtx) и system prompt
+    // передаются явно в теле запроса — для эмпирического подбора, без зашитых "оптимальных" значений.
+    post("/ask-local-tuned") {
+        val req  = call.receive<AskLocalTunedRequest>()
+        val topK = req.topK.coerceIn(1, 20)
+
+        val tunedOptions = if (
+            req.temperature != null || req.numPredict != null || req.numCtx != null ||
+            req.topP != null || req.ollamaTopK != null || req.repeatPenalty != null || req.seed != null
+        ) {
+            OllamaChatOptions(
+                temperature = req.temperature,
+                numPredict = req.numPredict,
+                numCtx = req.numCtx,
+                topP = req.topP,
+                topK = req.ollamaTopK,
+                repeatPenalty = req.repeatPenalty,
+                seed = req.seed
+            )
+        } else null
+
+        // promptVariant побеждает, если задан; иначе — legacy useOptimizedPrompt (обратная совместимость
+        // со старыми вызовами, которые ещё не знают про promptVariant).
+        val generationSystemPrompt = when {
+            req.promptVariant == "optimized"  -> LOCAL_OPTIMIZED_SYSTEM_PROMPT
+            req.promptVariant == "soft_quote" -> LOCAL_SOFT_QUOTE_SYSTEM_PROMPT
+            req.promptVariant != null -> {
+                logger.warn("🔵 RAG_DAY31 [ASK_LOCAL_TUNED] неизвестный promptVariant={}, использую DAY24_SYSTEM_PROMPT", req.promptVariant)
+                DAY24_SYSTEM_PROMPT
+            }
+            req.useOptimizedPrompt -> LOCAL_OPTIMIZED_SYSTEM_PROMPT
+            else -> DAY24_SYSTEM_PROMPT
+        }
+
+        logger.info(
+            "🔵 RAG_DAY29 [ASK_LOCAL_TUNED] question={} options={} promptVariant={} useOptimizedPrompt={}",
+            req.question, tunedOptions, req.promptVariant, req.useOptimizedPrompt
+        )
+
+        val totalStart = System.currentTimeMillis()
+        val result = runDay24Pipeline(
+            question = req.question,
+            topK = topK,
+            threshold = req.threshold,
+            embeddingService = embeddingService,
+            repo = repo,
+            complete = ollamaGenerationClient::complete,
+            mapError = { msg, e -> RagError.OllamaGenerationError(msg, e) },
+            generationSystemPrompt = generationSystemPrompt,
+            completeGeneration = { system, userMessage, maxTokens ->
+                ollamaGenerationClient.complete(system, userMessage, maxTokens, tunedOptions, req.model)
+            }
+        )
+        val elapsedTotalMs = System.currentTimeMillis() - totalStart
+
+        val mode = if (result.parsed.isDontKnow) "no_context" else "rag_with_citations"
+        logger.debug(
+            "🔵 RAG_DAY29 [ASK_LOCAL_TUNED] citations до verifyCitations: {}",
+            result.parsed.citations
+        )
+        val citations = if (result.parsed.isDontKnow) emptyList() else verifyCitations(result.parsed.citations, result.filtered)
+        val sources = if (result.parsed.isDontKnow) emptyList() else result.filtered.map { it.toDay24Source() }
+
+        logger.info(
+            "🔵 RAG_DAY29 [ASK_LOCAL_TUNED] mode={} rewriteMs={} genMs={} totalMs={}",
+            mode, result.elapsedRewriteMs, result.elapsedGenerationMs, elapsedTotalMs
+        )
+
+        call.respond(
+            HttpStatusCode.OK,
+            AskDay28Response(
+                answer = result.parsed.answer,
+                citations = citations,
+                sources = sources,
+                mode = mode,
+                source = "local",
+                elapsedRewriteMs = result.elapsedRewriteMs,
+                elapsedGenerationMs = result.elapsedGenerationMs,
+                elapsedTotalMs = elapsedTotalMs
+            )
+        )
+    }
+
+    // Долгий batch-роут: 10 сценариев × runsPerScenario прогонов через runDay24Pipeline
+    // (напрямую, без HTTP self-call). При 5 прогонах на сценарий — 50 вызовов Ollama,
+    // ожидаемо 10-20 минут. Никакого серверного call-timeout плагина в Application.kt
+    // не установлено (только клиентский CIO requestTimeout=120_000ms НА ОДИН HTTP-вызов
+    // к Ollama, не на весь роут) — так что сам роут ничем не ограничен по времени сверху.
+    post("/day29-report") {
+        val req = call.receive<Day29ReportRequest>()
+
+        logger.info(
+            "🔵 RAG_DAY29_REPORT [START] question={} runsPerScenario={}",
+            req.question, req.runsPerScenario
+        )
+
+        val (markdown, summary) = generateDay29Report(
+            question = req.question,
+            runsPerScenario = req.runsPerScenario,
+            embeddingService = embeddingService,
+            repo = repo,
+            ollamaGenerationClient = ollamaGenerationClient
+        )
+
+        val reportFile = File("day29_report.md")
+        reportFile.writeText(markdown)
+
+        logger.info("🔵 RAG_DAY29_REPORT [DONE] saved to {}", reportFile.absolutePath)
+
+        call.respond(
+            HttpStatusCode.OK,
+            Day29ReportResponse(reportPath = reportFile.absolutePath, summary = summary)
+        )
+    }
+
+    // Экспериментальная альтернатива /ask-local-tuned текстовому формату: генерация с
+    // Ollama format="json" вместо regex-парсинга [ОТВЕТ]/[ЦИТАТЫ]/[ИСТОЧНИКИ].
+    // Гипотеза: ограничение грамматики JSON снимет промпт-инжиниринговые проблемы формата,
+    // НЕ дословность цитат — то и другое разные вещи, verifyCitations всё ещё применяется.
+    post("/ask-local-json") {
+        val req  = call.receive<AskRerankedRequest>()
+        val topK = req.topK.coerceIn(1, 20)
+
+        logger.info("🔵 RAG_DAY30 [ASK_LOCAL_JSON] question={}", req.question)
+
+        val totalStart = System.currentTimeMillis()
+        val result = runDay24Pipeline(
+            question = req.question,
+            topK = topK,
+            threshold = req.threshold,
+            embeddingService = embeddingService,
+            repo = repo,
+            complete = ollamaGenerationClient::complete,
+            mapError = { msg, e -> RagError.OllamaGenerationError(msg, e) },
+            generationSystemPrompt = LOCAL_JSON_SYSTEM_PROMPT,
+            completeGeneration = { system, userMessage, maxTokens ->
+                ollamaGenerationClient.complete(system, userMessage, maxTokens, format = JsonPrimitive("json"))
+            },
+            parseAnswer = ::parseJsonAnswer
+        )
+        val elapsedTotalMs = System.currentTimeMillis() - totalStart
+
+        val mode = if (result.parsed.isDontKnow) "no_context" else "rag_with_citations"
+        val citations = if (result.parsed.isDontKnow) emptyList() else verifyCitations(result.parsed.citations, result.filtered)
+        val sources = if (result.parsed.isDontKnow) emptyList() else result.filtered.map { it.toDay24Source() }
+
+        logger.info(
+            "🔵 RAG_DAY30 [ASK_LOCAL_JSON] mode={} rewriteMs={} genMs={} totalMs={}",
+            mode, result.elapsedRewriteMs, result.elapsedGenerationMs, elapsedTotalMs
+        )
+
+        call.respond(
+            HttpStatusCode.OK,
+            AskDay28Response(
+                answer = result.parsed.answer,
+                citations = citations,
+                sources = sources,
+                mode = mode,
+                source = "local",
+                elapsedRewriteMs = result.elapsedRewriteMs,
+                elapsedGenerationMs = result.elapsedGenerationMs,
+                elapsedTotalMs = elapsedTotalMs
+            )
+        )
     }
 }
