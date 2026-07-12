@@ -50,15 +50,15 @@ private suspend fun runCliIndexing() {
         // HttpTimeout — протокольный таймаут поверх движка, соблюдается независимо от engine{}.
         // На VPS без GPU генерация эмбеддингов на CPU может занимать дольше дефолтных 15s.
         install(HttpTimeout) {
-            requestTimeoutMillis = 300_000
+            requestTimeoutMillis = 600_000
             connectTimeoutMillis = 30_000
-            socketTimeoutMillis = 300_000
+            socketTimeoutMillis = 600_000
         }
         // CIO default requestTimeout=15000ms — движковый таймаут, отдельный от HttpTimeout выше.
         // Держим равным Application.kt (тот же fix для того же сценария), иначе младший из
         // двух победит и HttpTimeout=300s окажется бессмысленным.
         engine {
-            requestTimeout = 300_000
+            requestTimeout = 600_000
         }
     }
 

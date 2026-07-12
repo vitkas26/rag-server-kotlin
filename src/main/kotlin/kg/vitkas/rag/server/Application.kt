@@ -46,15 +46,15 @@ fun Application.module() {
         // HttpTimeout — протокольный таймаут поверх движка, соблюдается независимо от engine{}.
         // На VPS без GPU генерация 7B-модели на CPU может занимать 1-2+ минуты.
         install(HttpTimeout) {
-            requestTimeoutMillis = 300_000
+            requestTimeoutMillis = 600_000
             connectTimeoutMillis = 30_000
-            socketTimeoutMillis = 300_000
+            socketTimeoutMillis = 600_000
         }
         // CIO default requestTimeout=15000ms — движковый таймаут, отдельный от HttpTimeout выше.
         // Держим >= requestTimeoutMillis: младший из двух побеждает, иначе HttpTimeout=300s
         // бессмысленнен, если engine всё равно обрубит раньше.
         engine {
-            requestTimeout = 300_000
+            requestTimeout = 600_000
         }
     }
     monitor.subscribe(ApplicationStopped) { httpClient.close() }
