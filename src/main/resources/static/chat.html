@@ -179,6 +179,7 @@
     cursor: pointer;
   }
   .compose-row button:disabled { opacity: 0.5; cursor: not-allowed; }
+  .compose-input:disabled { opacity: 0.6; cursor: not-allowed; }
 
   .result-row .k { font-size: 0.75rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.03em; margin-bottom: 3px; }
   .mono {
@@ -328,11 +329,11 @@
 
   <div class="panel chat-panel">
     <div class="chat-thread" id="chatThread">
-      <div class="chat-empty" id="chatEmpty">Задайте вопрос ниже — например, «Что такое число миссии?»</div>
+      <div class="chat-empty" id="chatEmpty">Задайте вопрос ниже — например, «Введи свою дату рождения и узнай свой путь»</div>
     </div>
 
     <form id="composeForm" class="compose-row">
-      <textarea id="question" class="compose-input" placeholder="Что такое число миссии?" required></textarea>
+      <textarea id="question" class="compose-input" placeholder="Введи свою дату рождения и узнай свой путь" required></textarea>
       <button type="submit" id="submitBtn">Отправить</button>
     </form>
   </div>
@@ -384,11 +385,17 @@
   endpointSelect.addEventListener('change', updateFormForEndpoint);
   updateFormForEndpoint();
 
+  // submitBtn.disabled блокирует только клик по кнопке — Enter в textarea шлёт submit в обход
+  // (form.requestSubmit() не проверяет disabled состояние кнопки). Единственный надёжный guard —
+  // этот флаг, проверяется первой строкой в submit-хендлере ниже, независимо от того, что именно
+  // вызвало submit (клик, Enter, requestSubmit откуда угодно).
+  let requestInFlight = false;
+
   // Enter отправляет, Shift+Enter — перенос строки (обычное чат-поведение).
   questionEl.addEventListener('keydown', function (ev) {
     if (ev.key === 'Enter' && !ev.shiftKey) {
       ev.preventDefault();
-      composeForm.requestSubmit();
+      if (!requestInFlight) composeForm.requestSubmit();
     }
   });
 
@@ -632,9 +639,12 @@
 
   composeForm.addEventListener('submit', function (ev) {
     ev.preventDefault();
+    if (requestInFlight) return;
 
     const question = questionEl.value.trim();
     if (!question) return;
+
+    requestInFlight = true;
 
     const ep = currentEndpoint();
     const user = document.getElementById('authUser').value;
@@ -657,6 +667,7 @@
     scrollToBottom();
 
     submitBtn.disabled = true;
+    questionEl.disabled = true;
 
     fetch(ep.path, {
       method: 'POST',
@@ -692,7 +703,10 @@
       })
       .finally(function () {
         clearInterval(timerHandle);
+        requestInFlight = false;
         submitBtn.disabled = false;
+        questionEl.disabled = false;
+        questionEl.focus();
         scrollToBottom();
       });
   });
