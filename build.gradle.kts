@@ -26,6 +26,10 @@ dependencies {
     implementation("io.ktor:ktor-server-content-negotiation:3.0.3")
     implementation("io.ktor:ktor-server-status-pages:3.0.3")
     implementation("io.ktor:ktor-server-call-logging:3.0.3")
+    implementation("io.ktor:ktor-server-auth:3.0.3")
+    // ktor-server-rate-limit НЕ используется: его интерцептор выполняется после фазы Authentication
+    // (проверено эмпирически) — не троттлит неудачные Basic Auth попытки, дыра для брутфорса.
+    // См. IpRateLimiter.kt — ручной лимитер на более ранней фазе, покрывает все запросы.
 
     // Coroutines + Serialization
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.9.0")

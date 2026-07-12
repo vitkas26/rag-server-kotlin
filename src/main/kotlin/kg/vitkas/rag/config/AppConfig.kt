@@ -21,7 +21,14 @@ data class AnthropicConfig(
     val version: String
 )
 
-data class AppConfig(val ollama: OllamaConfig, val rag: RagConfig, val anthropic: AnthropicConfig) {
+data class AuthConfig(val user: String, val password: String)
+
+data class AppConfig(
+    val ollama: OllamaConfig,
+    val rag: RagConfig,
+    val anthropic: AnthropicConfig,
+    val auth: AuthConfig
+) {
     companion object {
         fun from(config: ApplicationConfig): AppConfig = AppConfig(
             ollama = OllamaConfig(
@@ -43,6 +50,10 @@ data class AppConfig(val ollama: OllamaConfig, val rag: RagConfig, val anthropic
                 model     = config.property("anthropic.model").getString(),
                 maxTokens = config.property("anthropic.maxTokens").getString().toInt(),
                 version   = config.property("anthropic.version").getString()
+            ),
+            auth = AuthConfig(
+                user     = config.property("auth.user").getString(),
+                password = config.property("auth.password").getString()
             )
         )
 
@@ -66,6 +77,10 @@ data class AppConfig(val ollama: OllamaConfig, val rag: RagConfig, val anthropic
                 model     = "claude-haiku-4-5-20251001",
                 maxTokens = 1024,
                 version   = "2023-06-01"
+            ),
+            auth = AuthConfig(
+                user     = System.getenv("RAG_AUTH_USER") ?: "demo",
+                password = System.getenv("RAG_AUTH_PASSWORD") ?: "demo123"
             )
         )
     }
