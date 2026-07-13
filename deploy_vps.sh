@@ -7,25 +7,33 @@ set -e
 VPS_IP="138.16.155.105"
 VPS_USER="root"
 VPS_PATH="/opt/rag-day21"
-BRANCH="ai_advent_day29_local_llm_optimization"
+BRANCH="ai_advent_day30_local_llm_deploy"
 OLLAMA_MODEL="qwen2.5:7b-instruct-q4_0"
 
 SSH="ssh ${VPS_USER}@${VPS_IP}"
 LOG_FILE="/tmp/rag-day21.log"
 
 echo "=== [1/6] Останавливаю текущий сервер на VPS ==="
-$SSH "pkill -f MainKt || true; pkill -f gradlew || true"
+# [M]ainKt / [g]radlew — брекет-трюк: без него pkill -f матчит СВОЮ ЖЕ командную строку
+# (она содержит текст "gradlew"), убивает свой процесс и рвёт ssh-сессию с exit 255.
+$SSH "pkill -f '[M]ainKt' || true; pkill -f '[g]radlew' || true"
+# Gradle-демоны переживают этот pkill (у них своя долгоживущая JVM) и копятся с каждым
+# деплоем — на VPS с 7.8GB RAM три-четыре зависших демона (~2GB) вгоняют систему в swap
+# и это напрямую тормозит генерацию Ollama. Глушим демоны явно на каждом деплое.
+$SSH "cd ${VPS_PATH} && ./gradlew --stop || true"
 
 echo "=== [2/6] git pull ветки ${BRANCH} на VPS ==="
 $SSH "cd ${VPS_PATH} && git fetch origin && git checkout ${BRANCH} && git pull origin ${BRANCH}"
 
 echo "=== [3/6] Сборка проекта на VPS (./gradlew build -x test) ==="
-$SSH "cd ${VPS_PATH} && ./gradlew build -x test"
+# --no-daemon — одноразовая сборка в deploy-контексте не выигрывает от персистентного
+# демона, а лишний процесс на 500MB+ на этой VPS не бесплатен.
+$SSH "cd ${VPS_PATH} && ./gradlew build -x test --no-daemon"
 
 echo "=== [4/6] Запускаю сервер в фоне (OLLAMA_GENERATION_MODEL=${OLLAMA_MODEL}) ==="
 # rag_index.db не трогаем — индекс должен переживать деплой, пересобирается вручную отдельно.
 # nohup + перенаправление stdin/stdout/stderr — чтобы процесс пережил закрытие ssh-сессии.
-$SSH "cd ${VPS_PATH} && rm -f ${LOG_FILE} && OLLAMA_GENERATION_MODEL='${OLLAMA_MODEL}' nohup ./gradlew run > ${LOG_FILE} 2>&1 < /dev/null & disown; sleep 1; echo 'server launch triggered'"
+$SSH "cd ${VPS_PATH} && rm -f ${LOG_FILE} && OLLAMA_GENERATION_MODEL='${OLLAMA_MODEL}' nohup ./gradlew run --no-daemon > ${LOG_FILE} 2>&1 < /dev/null & disown; sleep 1; echo 'server launch triggered'"
 
 echo "=== [5/6] Жду старта и проверяю health-check ==="
 sleep 10
