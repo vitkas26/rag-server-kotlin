@@ -33,6 +33,7 @@ import kg.vitkas.rag.domain.usecase.AnswerHelpQueryUseCase
 import kg.vitkas.rag.infrastructure.llm.AnthropicLlmAdapter
 import kg.vitkas.rag.infrastructure.mcp.GitInfoMcpAdapter
 import kg.vitkas.rag.infrastructure.mcp.buildMcpGitServer
+import kg.vitkas.rag.infrastructure.rag.CodeContextRagAdapter
 import kg.vitkas.rag.infrastructure.rag.ProjectDocsRagAdapter
 import kg.vitkas.rag.model.ErrorResponse
 import kg.vitkas.rag.model.RagError
@@ -41,10 +42,12 @@ import kg.vitkas.rag.pipeline.EmbeddingService
 import kg.vitkas.rag.pipeline.IndexRepository
 import kg.vitkas.rag.pipeline.OllamaGenerationClient
 import kg.vitkas.rag.server.routes.askRoutes
+import kg.vitkas.rag.server.routes.codeIndexRoutes
 import kg.vitkas.rag.server.routes.debugRoutes
 import kg.vitkas.rag.server.routes.docsIndexRoutes
 import kg.vitkas.rag.server.routes.helpRoutes
 import kg.vitkas.rag.server.routes.indexRoutes
+import kg.vitkas.rag.server.routes.reviewRoutes
 import kg.vitkas.rag.server.routes.searchRoutes
 import kotlinx.serialization.json.Json
 
@@ -136,8 +139,13 @@ fun Application.module() {
 
     val gitInfoPort: GitInfoPort = GitInfoMcpAdapter(config.mcp.baseUrl)
     val projectDocsPort: ProjectDocsPort = ProjectDocsRagAdapter(embeddingService, indexRepository, config)
+    val codeContextPort: ProjectDocsPort = CodeContextRagAdapter(embeddingService, indexRepository, config)
     val llmPort: LlmPort = AnthropicLlmAdapter(anthropicClient)
     val answerHelpQueryUseCase = AnswerHelpQueryUseCase(gitInfoPort, projectDocsPort, llmPort)
+    // Day 32: diff — прямой git через ProcessBuilder, БЕЗ MCP (репо и раннер CI на одной машине).
+    // GitDiffAdapter не wire-ится здесь синглтоном — конструируется в ReviewRoutes под repoPath
+    // конкретного запроса (см. комментарий там).
+    val defaultRepoPath = System.getProperty("user.dir")
     monitor.subscribe(ApplicationStopped) { (gitInfoPort as GitInfoMcpAdapter).close() }
 
     routing {
@@ -146,6 +154,7 @@ fun Application.module() {
         staticResources("/chat", "static")
         indexRoutes(embeddingService, indexRepository, config)
         docsIndexRoutes(embeddingService, indexRepository, config)
+        codeIndexRoutes(embeddingService, indexRepository, config)
         searchRoutes(embeddingService, indexRepository, config)
         // Rate limit + Basic Auth (10 req/min per IP) — только на /ask-*, per задание.
         createChild(AskRoutesSelector).apply {
@@ -164,6 +173,7 @@ fun Application.module() {
             }
             askRoutes(embeddingService, indexRepository, anthropicClient, ollamaGenerationClient, config)
             helpRoutes(answerHelpQueryUseCase)
+            reviewRoutes(projectDocsPort, codeContextPort, llmPort, defaultRepoPath)
         }
         debugRoutes(embeddingService, indexRepository, ollamaGenerationClient)
     }
