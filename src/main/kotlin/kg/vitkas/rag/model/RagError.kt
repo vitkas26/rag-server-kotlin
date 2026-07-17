@@ -10,4 +10,6 @@ sealed class RagError(
     class NotIndexedError(message: String) : RagError(message)
     class AnthropicError(message: String, cause: Throwable? = null) : RagError(message, cause)
     class OllamaGenerationError(message: String, cause: Throwable? = null) : RagError(message, cause)
+    class DocsIndexError(message: String, cause: Throwable? = null) : RagError(message, cause)
+    class GitError(message: String, cause: Throwable? = null) : RagError(message, cause)
 }

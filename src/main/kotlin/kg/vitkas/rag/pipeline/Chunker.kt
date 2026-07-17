@@ -20,7 +20,7 @@ fun extractSections(text: String): List<Section> {
     return sections
 }
 
-fun chunkByFixedSize(text: String, config: RagConfig): List<Chunk> {
+fun chunkByFixedSize(text: String, config: RagConfig, source: String = config.mdPath): List<Chunk> {
     val words = text.split(Regex("\\s+")).filter { it.isNotBlank() }
     val chunks = mutableListOf<Chunk>()
     var index = 0
@@ -32,7 +32,7 @@ fun chunkByFixedSize(text: String, config: RagConfig): List<Chunk> {
         chunks.add(
             Chunk(
                 chunkId   = "fixed_$chunkIndex",
-                source    = config.mdPath,
+                source    = source,
                 strategy  = "fixed_size",
                 title     = "Fixed chunk $chunkIndex",
                 section   = "",
@@ -49,7 +49,7 @@ fun chunkByFixedSize(text: String, config: RagConfig): List<Chunk> {
     return chunks
 }
 
-fun chunkBySection(sections: List<Section>, config: RagConfig): List<Chunk> {
+fun chunkBySection(sections: List<Section>, config: RagConfig, source: String = config.mdPath): List<Chunk> {
     val chunks = mutableListOf<Chunk>()
 
     sections.forEachIndexed { sectionIndex, section ->
@@ -59,7 +59,7 @@ fun chunkBySection(sections: List<Section>, config: RagConfig): List<Chunk> {
             chunks.add(
                 Chunk(
                     chunkId   = "section_${sectionIndex}_0",
-                    source    = config.mdPath,
+                    source    = source,
                     strategy  = "by_structure",
                     title     = section.title,
                     section   = "Часть ${section.number}",
@@ -76,7 +76,7 @@ fun chunkBySection(sections: List<Section>, config: RagConfig): List<Chunk> {
                 chunks.add(
                     Chunk(
                         chunkId   = "section_${sectionIndex}_$subIndex",
-                        source    = config.mdPath,
+                        source    = source,
                         strategy  = "by_structure",
                         title     = "${section.title} (часть ${subIndex + 1})",
                         section   = "Часть ${section.number}",
