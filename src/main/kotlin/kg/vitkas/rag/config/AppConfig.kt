@@ -23,11 +23,17 @@ data class AnthropicConfig(
 
 data class AuthConfig(val user: String, val password: String)
 
+data class DocsConfig(val paths: List<String>)
+
+data class McpConfig(val baseUrl: String)
+
 data class AppConfig(
     val ollama: OllamaConfig,
     val rag: RagConfig,
     val anthropic: AnthropicConfig,
-    val auth: AuthConfig
+    val auth: AuthConfig,
+    val docs: DocsConfig,
+    val mcp: McpConfig
 ) {
     companion object {
         fun from(config: ApplicationConfig): AppConfig = AppConfig(
@@ -54,6 +60,12 @@ data class AppConfig(
             auth = AuthConfig(
                 user     = config.property("auth.user").getString(),
                 password = config.property("auth.password").getString()
+            ),
+            docs = DocsConfig(
+                paths = config.property("docs.paths").getString().split(",").map { it.trim() }
+            ),
+            mcp = McpConfig(
+                baseUrl = config.property("mcp.baseUrl").getString()
             )
         )
 
@@ -81,6 +93,13 @@ data class AppConfig(
             auth = AuthConfig(
                 user     = System.getenv("RAG_AUTH_USER") ?: "demo",
                 password = System.getenv("RAG_AUTH_PASSWORD") ?: "demo123"
+            ),
+            docs = DocsConfig(
+                paths = (System.getenv("DOCS_PATHS") ?: "README.md,ANDROID_CLIENT_API.md,ARCHITECTURE.md")
+                    .split(",").map { it.trim() }
+            ),
+            mcp = McpConfig(
+                baseUrl = System.getenv("MCP_BASE_URL") ?: "http://localhost:8080/mcp/git"
             )
         )
     }
