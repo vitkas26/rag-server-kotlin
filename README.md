@@ -1,56 +1,68 @@
-# RAG Day 21 — Индексация документов с эмбеддингами
+# RAG Day 21 — RAG-сервис + dev-ассистент
 
-Standalone Kotlin/JVM проект. Не Android — просто `fun main()`.
+Kotlin/Ktor проект. CLI-индексация + HTTP-сервер, без Android.
 
 ## Что делает
 
-1. Читает `NURAi_technical_document.pdf`
-2. Применяет две стратегии chunking:
-   - **Стратегия A (fixed_size)**: режет текст на чанки по 500 слов с overlap 50 слов
-   - **Стратегия B (by_structure)**: разбивает по 23 частям документа
-3. Для каждого чанка получает эмбеддинг через Ollama (`nomic-embed-text`)
-4. Сохраняет всё в `rag_index.db` (SQLite, две таблицы)
-5. Выводит сравнительную статистику
+- **Базовый RAG** (Day 21-29): индексирует `syucai_knowledge_base.md`, две стратегии chunking
+  (`fixed_size` / `by_structure`), эмбеддинги через Ollama (`nomic-embed-text`), поиск —
+  косинусная близость в SQLite. Генерация ответа — Anthropic (Haiku) или локальная Ollama-модель.
+- **Dev-ассистент** (Day 31): отвечает на вопросы про сам проект — текущая git-ветка (через
+  MCP-сервер, смонтированный в этом же приложении) и/или архитектура/структура (RAG по
+  `README.md`/`ANDROID_CLIENT_API.md`/`ARCHITECTURE.md`, отдельная коллекция).
+- **AI-ревью PR** (Day 32): по git diff между двумя ревизиями собирает контекст (архитектура +
+  похожий существующий код) и просит LLM вернуть баги/архитектурные проблемы/рекомендации.
+  Подключается как GitHub Action на `pull_request`.
+
+Подробности архитектуры — в [ARCHITECTURE.md](ARCHITECTURE.md).
+API для мобильного клиента — в [ANDROID_CLIENT_API.md](ANDROID_CLIENT_API.md).
 
 ## Требования
 
 - Java 17+
-- Ollama запущена: `ollama serve`
-- Модель загружена: `ollama pull nomic-embed-text`
-- Файл `NURAi_technical_document.pdf` лежит в корне проекта
+- Ollama запущена: `ollama serve`, модель загружена: `ollama pull nomic-embed-text`
+- `ANTHROPIC_API_KEY` — для `/ask*`, `/help`, `/review-pr` (генерация через Anthropic)
+- `git` в PATH — для MCP git-tools и `/review-pr`
 
 ## Запуск
 
-В Android Studio: File → Open → выбрать папку `rag-day21` → Gradle sync → запустить `Main.kt`
-
-Из терминала:
 ```bash
-./gradlew run
+./gradlew run              # HTTP-сервер на :8080 (при первом запуске сам проиндексирует базу знаний)
+./gradlew run --args="index"   # CLI-индексация без сервера
 ```
 
-## Ожидаемый вывод
+## Индексация (по требованию, без cron)
 
-```
-🔵 RAG_DAY21 starting indexing pipeline
-🔵 RAG_DAY21 extracting text from NURAi_technical_document.pdf
-🔵 RAG_DAY21 extracted XXXXX chars
-🔵 RAG_DAY21 strategy A (fixed_size): XX chunks
-🔵 RAG_DAY21 found 23 sections
-🔵 RAG_DAY21 strategy B (by_structure): XX chunks
-🔵 RAG_DAY21 generating embeddings for strategy A...
-🔵 RAG_DAY21 embedding chunk fixed_0 (1/XX)
-...
-=== Сравнение стратегий chunking ===
+| Route | Источник | Таблица |
+|---|---|---|
+| `POST /index` | `syucai_knowledge_base.md` | `chunks_fixed`, `chunks_by_section` |
+| `POST /index-docs` | `docs.paths` из `application.conf` (`DOCS_PATHS` env) | `docs_chunks` |
+| `POST /index-code` | `.kt`-файлы из `src/main/kotlin` | `code_chunks` |
 
-Стратегия A (fixed_size):
-  Всего чанков:   XX
-  Средний размер: 500 слов
-  Мин: X слов, Макс: 500 слов
+## HTTP API
 
-Стратегия B (by_structure):
-  Всего чанков:   XX
-  Средний размер: XXX слов
-  Мин: XX слов, Макс: 800 слов
+Без авторизации: `/index`, `/index-docs`, `/index-code`, `/search`, `/debug/context-size`, `/chat/*` (веб-форма).
 
-🔵 RAG_DAY21 indexing complete. DB: rag_index.db
-```
+С Basic Auth (`demo`/`demo123` по умолчанию, `RAG_AUTH_USER`/`RAG_AUTH_PASSWORD`) + rate limit
+10 req/min/IP:
+
+- `POST /ask`, `/ask-day24`, `/ask-no-rag`, `/ask-reranked`, `/ask-local`, `/ask-local-tuned`,
+  `/ask-local-json`, `/compare`, `/compare-local-cloud`, `/day29-report` — RAG над базой знаний,
+  разные экспериментальные варианты (см. [ANDROID_CLIENT_API.md](ANDROID_CLIENT_API.md))
+- `POST /help` — `{"query": "..."}` → dev-ассистент (git-ветка и/или архитектура + LLM-ответ)
+- `POST /review-pr` — `{"base": "...", "head": "...", "repoPath": "опционально"}` →
+  `{bugs, architectureIssues, recommendations, sources}`
+
+MCP: git-tools сервер смонтирован на `/mcp/git` (без auth, локальный, TODO перед VPS-деплоем).
+
+## Конфигурация
+
+Всё через `application.conf`, каждая настройка переопределяется env-переменной:
+`OLLAMA_URL`, `OLLAMA_MODEL`, `OLLAMA_GENERATION_MODEL`, `ANTHROPIC_API_KEY`, `ANTHROPIC_MODEL`,
+`ANTHROPIC_MAX_TOKENS`, `RAG_AUTH_USER`, `RAG_AUTH_PASSWORD`, `DOCS_PATHS`, `MCP_BASE_URL`, `PORT`.
+
+## AI-ревью PR (GitHub Action)
+
+`.github/workflows/ai-review.yml` — на каждый `pull_request` считает diff локально и шлёт его на
+уже задеплоенный инстанс (`secrets.RAG_SERVICE_URL`, `secrets.RAG_BASIC_AUTH`), результат постит
+комментарием к PR. Раннер CI ничего не поднимает сам (Ollama/эмбеддинги тяжелы для CI).
