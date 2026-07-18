@@ -32,6 +32,7 @@ import kg.vitkas.rag.domain.port.LlmPort
 import kg.vitkas.rag.domain.port.ProjectDocsPort
 import kg.vitkas.rag.domain.usecase.AnswerHelpQueryUseCase
 import kg.vitkas.rag.infrastructure.llm.AnthropicLlmAdapter
+import kg.vitkas.rag.infrastructure.llm.OllamaLlmAdapter
 import kg.vitkas.rag.infrastructure.mcp.GitInfoMcpAdapter
 import kg.vitkas.rag.infrastructure.mcp.buildMcpGitServer
 import kg.vitkas.rag.infrastructure.rag.CodeContextRagAdapter
@@ -147,6 +148,8 @@ fun Application.module() {
     val projectDocsPort: ProjectDocsPort = ProjectDocsRagAdapter(embeddingService, indexRepository, config)
     val codeContextPort: ProjectDocsPort = CodeContextRagAdapter(embeddingService, indexRepository, config)
     val llmPort: LlmPort = AnthropicLlmAdapter(anthropicClient)
+    // Day 32→33: Anthropic geo-blocked (403) на VPS в РФ — review-PR переведён на локальную Ollama.
+    val reviewLlmPort: LlmPort = OllamaLlmAdapter(ollamaGenerationClient)
     val answerHelpQueryUseCase = AnswerHelpQueryUseCase(gitInfoPort, projectDocsPort, llmPort)
     // Day 32: diff — прямой git через ProcessBuilder, БЕЗ MCP (репо и раннер CI на одной машине).
     // GitDiffAdapter не wire-ится здесь синглтоном — конструируется в ReviewRoutes под repoPath
@@ -179,7 +182,7 @@ fun Application.module() {
             }
             askRoutes(embeddingService, indexRepository, anthropicClient, ollamaGenerationClient, config)
             helpRoutes(answerHelpQueryUseCase)
-            reviewRoutes(projectDocsPort, codeContextPort, llmPort, defaultRepoPath)
+            reviewRoutes(projectDocsPort, codeContextPort, reviewLlmPort, defaultRepoPath)
         }
         debugRoutes(embeddingService, indexRepository, ollamaGenerationClient)
     }
