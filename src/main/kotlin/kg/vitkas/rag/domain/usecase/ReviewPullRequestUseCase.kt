@@ -4,11 +4,24 @@ import kg.vitkas.rag.domain.model.CodeReview
 import kg.vitkas.rag.domain.port.DiffPort
 import kg.vitkas.rag.domain.port.LlmPort
 import kg.vitkas.rag.domain.port.ProjectDocsPort
+import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.Json
 import org.slf4j.LoggerFactory
 
 private val logger = LoggerFactory.getLogger("kg.vitkas.rag.domain.usecase.ReviewPullRequestUseCase")
+private val reviewJson = Json { ignoreUnknownKeys = true }
 
 private const val MAX_DIFF_QUERY_CHARS = 4000
+
+// Ответ OllamaLlmAdapter (structured output, format = JSON Schema) декодируется сюда напрямую.
+// AnthropicLlmAdapter по-прежнему отдаёт markdown с ## заголовками — decodeFromString на нём
+// упадёт, и parseReview молча уходит в fallback на header-based парсинг ниже.
+@Serializable
+private data class OllamaReviewJson(
+    val bugs: List<String> = emptyList(),
+    val architectureIssues: List<String> = emptyList(),
+    val recommendations: List<String> = emptyList()
+)
 
 private const val BUGS_HEADER = "## Баги"
 private const val ARCH_HEADER = "## Архитектурные проблемы"
@@ -60,12 +73,28 @@ class ReviewPullRequestUseCase(
         return parseReview(rawAnswer, sources.distinct())
     }
 
-    private fun parseReview(raw: String, sources: List<String>): CodeReview = CodeReview(
-        bugs = parseListSection(extractSection(raw, BUGS_HEADER)),
-        architectureIssues = parseListSection(extractSection(raw, ARCH_HEADER)),
-        recommendations = parseListSection(extractSection(raw, RECS_HEADER)),
-        sources = sources
-    )
+    private fun parseReview(raw: String, sources: List<String>): CodeReview {
+        logger.debug("Raw LLM review response: {}", raw)
+
+        parseJsonReview(raw)?.let { json ->
+            return CodeReview(
+                bugs = json.bugs,
+                architectureIssues = json.architectureIssues,
+                recommendations = json.recommendations,
+                sources = sources
+            )
+        }
+
+        return CodeReview(
+            bugs = parseListSection(extractSection(raw, BUGS_HEADER)),
+            architectureIssues = parseListSection(extractSection(raw, ARCH_HEADER)),
+            recommendations = parseListSection(extractSection(raw, RECS_HEADER)),
+            sources = sources
+        )
+    }
+
+    private fun parseJsonReview(raw: String): OllamaReviewJson? =
+        runCatching { reviewJson.decodeFromString<OllamaReviewJson>(raw.trim()) }.getOrNull()
 
     private fun extractSection(raw: String, header: String): String {
         val startIdx = raw.indexOf(header)
