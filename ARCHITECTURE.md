@@ -29,6 +29,22 @@
   system-prompt, зовёт `LlmPort`, возвращает ответ + список источников
   (`git:branch=<name>` и/или пути файлов).
 
+## Day 33: Clean Architecture слой для support-ассистента
+
+- `domain/model/` — `SupportAnswer` (результат usecase: `answer`, `sources`, `ticketFound`),
+  `TicketContext` (доменная модель тикета: `ticketId`, `userName`, `issue`, `extra`).
+- `domain/port/TicketPort.kt` — интерфейс без знания про источник тикетов:
+  `findTicket(ticketId): TicketContext?`.
+- `domain/usecase/AnswerSupportQueryUseCase.kt` — принимает три порта через конструктор
+  (`TicketPort`, `ProjectDocsPort` из Day 31, `LlmPort`). Опционально получает `ticketId`,
+  ищет тикет через `TicketPort`, ищет FAQ в docs-коллекции через `ProjectDocsPort`,
+  собирает system-prompt (префикс про роль support-ассистента + контекст тикета +
+  найденные chunks), зовёт `LlmPort`, возвращает `SupportAnswer`.
+- `infrastructure/support/JsonTicketAdapter.kt` — implements `TicketPort`. Читает тикеты
+  из JSON-файла (путь в конструкторе), десериализует, ищет по `ticketId`.
+  При ошибке загрузки бросает `RagError.TicketError`.
+- `POST /support` (`SupportRoutes.kt`) — в защищённом Basic Auth блоке, рядом с `/help`.
+
 ## Инфраструктура (адаптеры портов)
 
 - `infrastructure/mcp/GitInfoMcpAdapter.kt` — implements `GitInfoPort`. Настоящий MCP-клиент
@@ -41,6 +57,9 @@
   базы знаний.
 - `infrastructure/llm/AnthropicLlmAdapter.kt` — implements `LlmPort`, тонкая обёртка над
   существующим `pipeline/AnthropicClient.kt` (Haiku, `application.conf#anthropic`).
+- `infrastructure/support/JsonTicketAdapter.kt` — implements `TicketPort`. Читает JSON-файл
+  по пути из конструктора (`kotlinx.serialization`), десериализует в `List<TicketDto>`,
+  ищет по `ticketId`. При ошибке чтения/парсинга бросает `RagError.TicketError`.
 
 ## DI
 
@@ -48,6 +67,40 @@ Koin не используется — весь wiring ручной, внутр�
 (`server/Application.kt`). Порты конструируются как `val gitInfoPort: GitInfoPort =
 GitInfoMcpAdapter(...)` и передаются в `AnswerHelpQueryUseCase` по конструктору;
 `GitInfoMcpAdapter.close()` вызывается на `ApplicationStopped`.
+
+## Day 34: файловый ассистент через MCP filesystem server
+
+- `domain/port/FileToolPort.kt` — интерфейс без знания про MCP: `listDirectory(path)`,
+  `readFile(path)`, `writeFile(path, content)`, `searchFiles(pattern)`.
+- `domain/port/AgenticLlmPort.kt` — `sendTurn(system, history, tools): AgentTurn`,
+  провайдер-независимый агентный контур (не завязан на Anthropic wire-формат), отдельно
+  от простого `LlmPort` (Day 31), который tools API не поддерживает.
+- `domain/model/` — `AgentMessage`/`AgentContentBlock` (Text/ToolUse/ToolResult, история
+  диалога с LLM), `ToolDefinition`/`ToolParam` (описание тула для LLM), `AgentTurn`
+  (`ToolCallRequested`/`FinalAnswer`), `AgentToolCall`/`FileAssistantAnswer` (результат
+  usecase).
+- `domain/usecase/FileAssistantUseCase.kt` — agent loop до 10 итераций: `sendTurn` →
+  `ToolCallRequested` вызывает соответствующие методы `FileToolPort`, ошибка выполнения
+  тула превращается в `ToolResult(isError=true)` (не бросает — даёт LLM шанс поправиться),
+  `FinalAnswer` завершает цикл. Чистый usecase без HTTP-зависимостей — задел под будущий
+  `OrchestratorUseCase` (Day 35), который сможет вызывать его напрямую как субагента.
+- `infrastructure/mcp/FilesystemMcpAdapter.kt` — implements `FileToolPort`. В отличие от
+  `GitInfoMcpAdapter` (Day 31, HTTP MCP-сервер в этом же Ktor-процессе), здесь MCP-сервер —
+  ОТДЕЛЬНЫЙ npm-процесс (`npx @modelcontextprotocol/server-filesystem <repoPath>`),
+  общающийся по stdio через `StdioClientTransport` (`kotlin-sdk-client`). Ограничение
+  доступа к каталогу проекта обеспечивает сам официальный сервер (единственный разрешённый
+  путь передаётся аргументом при старте) — собственной защиты от выхода за пределы
+  репозитория в коде нет.
+- `infrastructure/llm/AnthropicAgenticLlmAdapter.kt` — implements `AgenticLlmPort`.
+  Транслирует domain-модели агентного цикла в Anthropic tools API wire-формат
+  (`model/AnthropicAgentModels.kt`) и обратно, зовёт новый метод `completeWithTools`
+  в существующем `pipeline/AnthropicClient.kt` (старый `complete()` не тронут).
+- `POST /file-assistant` (`FileAssistantRoutes.kt`) — в защищённом Basic Auth блоке,
+  рядом с `/help`/`/support`/`/review-pr`.
+- Wiring в `Application.kt`: `FilesystemMcpAdapter` конструируется с командой из
+  `application.conf#filesystem.command` (override `FILESYSTEM_MCP_COMMAND`) и тем же
+  `defaultRepoPath`, что и `review-pr`; закрывается (`process.destroy()`) на
+  `ApplicationStopped`.
 
 ## Индексация docs-коллекции
 

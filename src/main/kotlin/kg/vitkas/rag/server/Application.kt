@@ -27,12 +27,17 @@ import io.ktor.server.routing.routing
 import io.modelcontextprotocol.kotlin.sdk.server.mcpStreamableHttp
 import java.util.Base64
 import kg.vitkas.rag.config.AppConfig
+import kg.vitkas.rag.domain.port.AgenticLlmPort
+import kg.vitkas.rag.domain.port.FileToolPort
 import kg.vitkas.rag.domain.port.GitInfoPort
 import kg.vitkas.rag.domain.port.LlmPort
 import kg.vitkas.rag.domain.port.ProjectDocsPort
 import kg.vitkas.rag.domain.usecase.AnswerHelpQueryUseCase
+import kg.vitkas.rag.domain.usecase.FileAssistantUseCase
+import kg.vitkas.rag.infrastructure.llm.AnthropicAgenticLlmAdapter
 import kg.vitkas.rag.infrastructure.llm.AnthropicLlmAdapter
 import kg.vitkas.rag.infrastructure.llm.OllamaLlmAdapter
+import kg.vitkas.rag.infrastructure.mcp.FilesystemMcpAdapter
 import kg.vitkas.rag.infrastructure.mcp.GitInfoMcpAdapter
 import kg.vitkas.rag.infrastructure.mcp.buildMcpGitServer
 import kg.vitkas.rag.domain.port.TicketPort
@@ -52,6 +57,7 @@ import kg.vitkas.rag.server.routes.codeIndexRoutes
 import kg.vitkas.rag.server.routes.debugRoutes
 import kg.vitkas.rag.server.routes.docsIndexRoutes
 import kg.vitkas.rag.server.routes.faqIndexRoutes
+import kg.vitkas.rag.server.routes.fileAssistantRoutes
 import kg.vitkas.rag.server.routes.helpRoutes
 import kg.vitkas.rag.server.routes.indexRoutes
 import kg.vitkas.rag.server.routes.reviewRoutes
@@ -166,6 +172,13 @@ fun Application.module() {
     val defaultRepoPath = System.getProperty("user.dir")
     monitor.subscribe(ApplicationStopped) { (gitInfoPort as GitInfoMcpAdapter).close() }
 
+    // Day 34: файловый ассистент — MCP filesystem server как отдельный npm-процесс (stdio),
+    // в отличие от gitInfoPort выше (HTTP MCP-сервер в этом же Ktor-процессе).
+    val fileToolPort: FileToolPort = FilesystemMcpAdapter(config.filesystem.command, defaultRepoPath)
+    val agenticLlmPort: AgenticLlmPort = AnthropicAgenticLlmAdapter(anthropicClient)
+    val fileAssistantUseCase = FileAssistantUseCase(fileToolPort, agenticLlmPort)
+    monitor.subscribe(ApplicationStopped) { (fileToolPort as FilesystemMcpAdapter).close() }
+
     routing {
         // Вне createChild(AskRoutesSelector) ниже — страница открывается без Basic Auth,
         // авторизация нужна только самим fetch()-запросам к /ask-* из формы, не самой странице.
@@ -194,6 +207,7 @@ fun Application.module() {
             helpRoutes(answerHelpQueryUseCase)
             supportRoutes(answerSupportQueryUseCase)
             reviewRoutes(projectDocsPort, codeContextPort, reviewLlmPort, defaultRepoPath)
+            fileAssistantRoutes(fileAssistantUseCase)
         }
         debugRoutes(embeddingService, indexRepository, ollamaGenerationClient)
     }

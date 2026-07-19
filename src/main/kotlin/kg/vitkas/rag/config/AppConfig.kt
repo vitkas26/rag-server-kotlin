@@ -31,6 +31,8 @@ data class FaqConfig(val path: String)
 
 data class TicketsConfig(val path: String)
 
+data class FilesystemConfig(val command: String)
+
 data class AppConfig(
     val ollama: OllamaConfig,
     val rag: RagConfig,
@@ -39,7 +41,8 @@ data class AppConfig(
     val docs: DocsConfig,
     val mcp: McpConfig,
     val faq: FaqConfig,
-    val tickets: TicketsConfig
+    val tickets: TicketsConfig,
+    val filesystem: FilesystemConfig
 ) {
     companion object {
         fun from(config: ApplicationConfig): AppConfig = AppConfig(
@@ -78,6 +81,9 @@ data class AppConfig(
             ),
             tickets = TicketsConfig(
                 path = config.property("tickets.path").getString()
+            ),
+            filesystem = FilesystemConfig(
+                command = config.property("filesystem.command").getString()
             )
         )
 
@@ -118,6 +124,10 @@ data class AppConfig(
             ),
             tickets = TicketsConfig(
                 path = System.getenv("TICKETS_PATH") ?: "tickets.json"
+            ),
+            filesystem = FilesystemConfig(
+                command = System.getenv("FILESYSTEM_MCP_COMMAND")
+                    ?: "npx -y @modelcontextprotocol/server-filesystem"
             )
         )
     }
