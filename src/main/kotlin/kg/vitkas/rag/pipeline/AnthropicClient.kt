@@ -11,12 +11,12 @@ import io.ktor.http.contentType
 import io.ktor.http.isSuccess
 import kg.vitkas.rag.config.AppConfig
 import kg.vitkas.rag.model.AnthropicAgentMessage
-import kg.vitkas.rag.model.AnthropicAgentRequest
 import kg.vitkas.rag.model.AnthropicAgentResponse
 import kg.vitkas.rag.model.AnthropicMessage
 import kg.vitkas.rag.model.AnthropicRequest
 import kg.vitkas.rag.model.AnthropicResponse
 import kg.vitkas.rag.model.AnthropicTool
+import kg.vitkas.rag.model.buildCachedAgentRequest
 import org.slf4j.LoggerFactory
 
 private val logger = LoggerFactory.getLogger("kg.vitkas.rag.pipeline.AnthropicClient")
@@ -69,15 +69,7 @@ class AnthropicClient(private val client: HttpClient, private val config: AppCon
             contentType(ContentType.Application.Json)
             header("x-api-key", config.anthropic.apiKey)
             header("anthropic-version", config.anthropic.version)
-            setBody(
-                AnthropicAgentRequest(
-                    model = model,
-                    maxTokens = maxTokens,
-                    system = system,
-                    tools = tools,
-                    messages = messages
-                )
-            )
+            setBody(buildCachedAgentRequest(model, maxTokens, system, tools, messages))
         }
         check(httpResponse.status.isSuccess()) {
             "Anthropic API returned ${httpResponse.status}: ${httpResponse.bodyAsText()}"

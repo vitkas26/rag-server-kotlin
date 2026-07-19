@@ -132,4 +132,81 @@ class FileAssistantUseCaseTest {
         val toolResult = toolResultMessage.content.filterIsInstance<AgentContentBlock.ToolResult>().single()
         assertTrue(toolResult.isError)
     }
+
+    @Test
+    fun `older tool results get compressed, only the newest stays full`() = runTest {
+        val fileToolPort = object : FileToolPort {
+            override suspend fun listDirectory(path: String) = emptyList<String>()
+            override suspend fun readFile(path: String): String = "X".repeat(500)
+            override suspend fun writeFile(path: String, content: String) {}
+            override suspend fun searchFiles(pattern: String) = emptyList<String>()
+            override suspend fun searchInFileContents(pattern: String) = emptyList<String>()
+        }
+        val readTurns = (1..5).map { i ->
+            AgentTurn.ToolCallRequested(
+                listOf(AgentContentBlock.ToolUse("id$i", "read_file", mapOf("path" to "file$i.kt")))
+            )
+        }
+        val llmPort = FakeAgenticLlmPort(readTurns + AgentTurn.FinalAnswer("done"))
+        val useCase = FileAssistantUseCase(fileToolPort, llmPort)
+
+        useCase.execute("read many files")
+
+        // История, переданная на ПОСЛЕДНИЙ вызов (перед FinalAnswer) — это post-compression
+        // состояние после всех 5 раундов read_file.
+        val finalHistory = llmPort.historySnapshots.last()
+        val toolResultBlocks = finalHistory.flatMap { it.content }.filterIsInstance<AgentContentBlock.ToolResult>()
+        assertEquals(5, toolResultBlocks.size)
+
+        val older = toolResultBlocks.dropLast(1)
+        val newest = toolResultBlocks.last()
+        assertTrue(older.all { it.content.length < 500 }, "older tool results must be compressed, not full-length")
+        assertEquals(500, newest.content.length, "the newest tool result must stay untouched")
+
+        // Кумулятивный объём истории не растёт линейно с числом итераций — при "наивном"
+        // подходе (полная история каждый раз) здесь было бы 5 * 500 = 2500 символов только
+        // в tool_result-блоках; со сжатием — заметно меньше.
+        val totalToolResultChars = toolResultBlocks.sumOf { it.content.length }
+        assertTrue(totalToolResultChars < 5 * 500, "compression must reduce cumulative history size")
+    }
+
+    @Test
+    fun `history exceeding the size threshold triggers more aggressive compression`() = runTest {
+        // Компрессия срабатывает инкрементально на КАЖДОЙ итерации, поэтому суммарный объём
+        // "сырой" истории никогда органически не доходит до большого числа — старые раунды
+        // уже сжаты к моменту, когда добавляется новый. Чтобы реально пробить порог
+        // MAX_HISTORY_CHARS (50000), одного раунда должно хватать самого по себе: используем
+        // контент size 60000 — уже после первого раунда total (60000 raw, ещё не сжат, т.к.
+        // это единственное/последнее сообщение) не компрессируется; когда прилетает второй
+        // раунд, totalChars(60000 raw #1 + 60000 raw #2) далеко за порогом — #1 сжимается
+        // агрессивно (60 символов вместо обычных 200).
+        val bigContent = "Y".repeat(60_000)
+        val fileToolPort = object : FileToolPort {
+            override suspend fun listDirectory(path: String) = emptyList<String>()
+            override suspend fun readFile(path: String): String = bigContent
+            override suspend fun writeFile(path: String, content: String) {}
+            override suspend fun searchFiles(pattern: String) = emptyList<String>()
+            override suspend fun searchInFileContents(pattern: String) = emptyList<String>()
+        }
+        val readTurns = (1..2).map { i ->
+            AgentTurn.ToolCallRequested(
+                listOf(AgentContentBlock.ToolUse("id$i", "read_file", mapOf("path" to "big$i.kt")))
+            )
+        }
+        val llmPort = FakeAgenticLlmPort(readTurns + AgentTurn.FinalAnswer("done"))
+        val useCase = FileAssistantUseCase(fileToolPort, llmPort)
+
+        useCase.execute("read big files")
+
+        val finalHistory = llmPort.historySnapshots.last()
+        val toolResultBlocks = finalHistory.flatMap { it.content }.filterIsInstance<AgentContentBlock.ToolResult>()
+        val olderToolResults = toolResultBlocks.dropLast(1)
+        // Обычный (не агрессивный) компресс даёт ~283 символа (200 preview + label + suffix) —
+        // порог в 200 надёжно отличает "агрессивно сжато" (~145) от "сжато нормально" (~283),
+        // не завязываясь на точную арифметику длины лейбла/суффикса.
+        assertTrue(
+            olderToolResults.all { it.content.length < 200 },
+            "large accumulated history must trigger more aggressive compression than the normal 200-char preview"
+        )
+    }
 }

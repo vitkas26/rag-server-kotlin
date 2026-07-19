@@ -16,6 +16,19 @@ private val logger = LoggerFactory.getLogger("kg.vitkas.rag.domain.usecase.FileA
 
 private const val MAX_ITERATIONS = 10
 
+// Экономия токенов в agent loop (by analogy с Day 25 task state summary): полная история
+// пересылается заново на КАЖДОЙ итерации, значит цена read_file-результатов накапливается
+// кумулятивно. Держим полным только САМЫЙ ПОСЛЕДНИЙ раунд tool_result — модель уже
+// "обработала" более старые результаты, решая по ним следующий шаг; для дальнейших решений
+// обычно достаточно короткой выжимки ("что было прочитано"), не всего текста файла.
+private const val TOOL_RESULT_PREVIEW_CHARS = 200
+
+// Если суммарный объём истории всё равно превышает разумный порог (например, тул вернул
+// несколько больших файлов подряд) — сжимаем старые tool_result сильнее превентивно, не
+// дожидаясь органического роста до предела контекста модели.
+private const val MAX_HISTORY_CHARS = 50_000
+private const val AGGRESSIVE_TOOL_RESULT_PREVIEW_CHARS = 60
+
 private const val SYSTEM_PROMPT =
     "Ты ассистент, который анализирует и изменяет файлы Kotlin-проекта rag-day21 через MCP " +
         "filesystem tools: list_directory, read_file, write_file, search_files (поиск по " +
@@ -130,11 +143,65 @@ class FileAssistantUseCase(
                     }
 
                     history += AgentMessage(role = "user", content = toolResults)
+
+                    val compressed = compressOlderToolResults(history)
+                    history.clear()
+                    history.addAll(compressed)
                 }
             }
         }
 
         throw RagError.FileToolError("File assistant exceeded max iterations ($MAX_ITERATIONS) without a final answer")
+    }
+
+    // Сжимает ToolResult-блоки во ВСЕХ сообщениях истории, кроме самого последнего (только
+    // что добавленного) — тот остаётся полным. Идемпотентно: повторный вызов на уже сжатом
+    // блоке лишь укорачивает его сильнее (не ломается, просто теряет немного читаемости —
+    // приемлемо для aggressive-порога ниже).
+    private fun compressOlderToolResults(history: List<AgentMessage>): List<AgentMessage> {
+        if (history.size <= 1) return history
+
+        val totalChars = history.sumOf { message -> message.content.sumOf { it.approxChars() } }
+        val previewChars = if (totalChars > MAX_HISTORY_CHARS) AGGRESSIVE_TOOL_RESULT_PREVIEW_CHARS else TOOL_RESULT_PREVIEW_CHARS
+
+        val toolUseById = history.asSequence()
+            .flatMap { it.content }
+            .filterIsInstance<AgentContentBlock.ToolUse>()
+            .associateBy { it.id }
+
+        val lastIndex = history.size - 1
+        return history.mapIndexed { index, message ->
+            if (index == lastIndex) return@mapIndexed message
+            if (message.content.none { it is AgentContentBlock.ToolResult }) return@mapIndexed message
+            message.copy(
+                content = message.content.map { block ->
+                    if (block is AgentContentBlock.ToolResult) {
+                        summarizeToolResult(block, toolUseById, previewChars)
+                    } else {
+                        block
+                    }
+                }
+            )
+        }
+    }
+
+    private fun summarizeToolResult(
+        result: AgentContentBlock.ToolResult,
+        toolUseById: Map<String, AgentContentBlock.ToolUse>,
+        previewChars: Int
+    ): AgentContentBlock.ToolResult {
+        if (result.content.length <= previewChars) return result
+        val call = toolUseById[result.toolUseId]
+        val label = call?.let { "${it.name}(${it.input.entries.joinToString(", ") { (k, v) -> "$k=$v" }})" } ?: "tool"
+        val preview = result.content.take(previewChars)
+        val summary = "[$label] $preview... (полное содержимое было передано ранее и обработано)"
+        return result.copy(content = summary)
+    }
+
+    private fun AgentContentBlock.approxChars(): Int = when (this) {
+        is AgentContentBlock.Text -> text.length
+        is AgentContentBlock.ToolUse -> name.length + input.values.sumOf { it.length }
+        is AgentContentBlock.ToolResult -> content.length
     }
 
     private suspend fun executeTool(name: String, args: Map<String, String>): String = when (name) {
