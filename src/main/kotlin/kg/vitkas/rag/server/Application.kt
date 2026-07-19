@@ -35,8 +35,12 @@ import kg.vitkas.rag.infrastructure.llm.AnthropicLlmAdapter
 import kg.vitkas.rag.infrastructure.llm.OllamaLlmAdapter
 import kg.vitkas.rag.infrastructure.mcp.GitInfoMcpAdapter
 import kg.vitkas.rag.infrastructure.mcp.buildMcpGitServer
+import kg.vitkas.rag.domain.port.TicketPort
+import kg.vitkas.rag.domain.usecase.AnswerSupportQueryUseCase
 import kg.vitkas.rag.infrastructure.rag.CodeContextRagAdapter
+import kg.vitkas.rag.infrastructure.rag.FaqRagAdapter
 import kg.vitkas.rag.infrastructure.rag.ProjectDocsRagAdapter
+import kg.vitkas.rag.infrastructure.support.JsonTicketAdapter
 import kg.vitkas.rag.model.ErrorResponse
 import kg.vitkas.rag.model.RagError
 import kg.vitkas.rag.pipeline.AnthropicClient
@@ -47,10 +51,12 @@ import kg.vitkas.rag.server.routes.askRoutes
 import kg.vitkas.rag.server.routes.codeIndexRoutes
 import kg.vitkas.rag.server.routes.debugRoutes
 import kg.vitkas.rag.server.routes.docsIndexRoutes
+import kg.vitkas.rag.server.routes.faqIndexRoutes
 import kg.vitkas.rag.server.routes.helpRoutes
 import kg.vitkas.rag.server.routes.indexRoutes
 import kg.vitkas.rag.server.routes.reviewRoutes
 import kg.vitkas.rag.server.routes.searchRoutes
+import kg.vitkas.rag.server.routes.supportRoutes
 import kotlinx.serialization.json.Json
 import org.slf4j.LoggerFactory
 
@@ -151,6 +157,9 @@ fun Application.module() {
     // Day 32→33: Anthropic geo-blocked (403) на VPS в РФ — review-PR переведён на локальную Ollama.
     val reviewLlmPort: LlmPort = OllamaLlmAdapter(ollamaGenerationClient)
     val answerHelpQueryUseCase = AnswerHelpQueryUseCase(gitInfoPort, projectDocsPort, llmPort)
+    val ticketPort: TicketPort = JsonTicketAdapter(config.tickets.path)
+    val faqPort: ProjectDocsPort = FaqRagAdapter(embeddingService, indexRepository, config)
+    val answerSupportQueryUseCase = AnswerSupportQueryUseCase(ticketPort, faqPort, llmPort)
     // Day 32: diff — прямой git через ProcessBuilder, БЕЗ MCP (репо и раннер CI на одной машине).
     // GitDiffAdapter не wire-ится здесь синглтоном — конструируется в ReviewRoutes под repoPath
     // конкретного запроса (см. комментарий там).
@@ -163,6 +172,7 @@ fun Application.module() {
         staticResources("/chat", "static")
         indexRoutes(embeddingService, indexRepository, config)
         docsIndexRoutes(embeddingService, indexRepository, config)
+        faqIndexRoutes(embeddingService, indexRepository, config)
         codeIndexRoutes(embeddingService, indexRepository, config)
         searchRoutes(embeddingService, indexRepository, config)
         // Rate limit + Basic Auth (10 req/min per IP) — только на /ask-*, per задание.
@@ -182,6 +192,7 @@ fun Application.module() {
             }
             askRoutes(embeddingService, indexRepository, anthropicClient, ollamaGenerationClient, config)
             helpRoutes(answerHelpQueryUseCase)
+            supportRoutes(answerSupportQueryUseCase)
             reviewRoutes(projectDocsPort, codeContextPort, reviewLlmPort, defaultRepoPath)
         }
         debugRoutes(embeddingService, indexRepository, ollamaGenerationClient)

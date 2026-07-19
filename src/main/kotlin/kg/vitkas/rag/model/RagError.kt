@@ -12,4 +12,6 @@ sealed class RagError(
     class OllamaGenerationError(message: String, cause: Throwable? = null) : RagError(message, cause)
     class DocsIndexError(message: String, cause: Throwable? = null) : RagError(message, cause)
     class GitError(message: String, cause: Throwable? = null) : RagError(message, cause)
+    class TicketError(message: String, cause: Throwable? = null) : RagError(message, cause)
+    class FaqIndexError(message: String, cause: Throwable? = null) : RagError(message, cause)
 }

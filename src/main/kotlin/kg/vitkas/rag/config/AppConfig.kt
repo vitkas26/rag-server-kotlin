@@ -27,13 +27,19 @@ data class DocsConfig(val paths: List<String>)
 
 data class McpConfig(val baseUrl: String)
 
+data class FaqConfig(val path: String)
+
+data class TicketsConfig(val path: String)
+
 data class AppConfig(
     val ollama: OllamaConfig,
     val rag: RagConfig,
     val anthropic: AnthropicConfig,
     val auth: AuthConfig,
     val docs: DocsConfig,
-    val mcp: McpConfig
+    val mcp: McpConfig,
+    val faq: FaqConfig,
+    val tickets: TicketsConfig
 ) {
     companion object {
         fun from(config: ApplicationConfig): AppConfig = AppConfig(
@@ -66,6 +72,12 @@ data class AppConfig(
             ),
             mcp = McpConfig(
                 baseUrl = config.property("mcp.baseUrl").getString()
+            ),
+            faq = FaqConfig(
+                path = config.property("faq.path").getString()
+            ),
+            tickets = TicketsConfig(
+                path = config.property("tickets.path").getString()
             )
         )
 
@@ -100,6 +112,12 @@ data class AppConfig(
             ),
             mcp = McpConfig(
                 baseUrl = System.getenv("MCP_BASE_URL") ?: "http://localhost:8080/mcp/git"
+            ),
+            faq = FaqConfig(
+                path = System.getenv("FAQ_PATH") ?: "faq.md"
+            ),
+            tickets = TicketsConfig(
+                path = System.getenv("TICKETS_PATH") ?: "tickets.json"
             )
         )
     }
