@@ -1,0 +1,290 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SyutsaiMentorPro — поддержка пользователей</title>
+<style>
+  :root {
+    color-scheme: light dark;
+    --bg: #f8f3ea;
+    --panel: #fffdf8;
+    --border: #e3d6bd;
+    --text: #2b2320;
+    --muted: #8a7d6a;
+    --accent: #a8322d;
+    --accent-gold: #c9a24b;
+    --error: #b3261e;
+    --ok: #1e7a34;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #16130f;
+      --panel: #221c17;
+      --border: #3a2f24;
+      --text: #ecdfc9;
+      --muted: #a8967a;
+      --accent: #d9635c;
+      --accent-gold: #d8b568;
+      --error: #ff6b6b;
+      --ok: #4caf50;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    padding: 24px;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    line-height: 1.4;
+  }
+  .wrap { max-width: 720px; margin: 0 auto; }
+  h1 { font-size: 1.3rem; margin-bottom: 4px; }
+  .brand-sub { color: var(--muted); font-size: 0.85rem; margin: 0 0 18px; }
+  .panel {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 18px;
+    margin-bottom: 16px;
+    position: relative;
+    overflow: hidden;
+  }
+  .panel::before {
+    content: "";
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 3px;
+    background: linear-gradient(90deg, var(--accent), var(--accent-gold), var(--accent));
+  }
+  label { display: block; font-size: 0.85rem; font-weight: 600; margin-bottom: 4px; margin-top: 12px; }
+  label:first-child { margin-top: 0; }
+  textarea, input, select {
+    width: 100%;
+    padding: 8px 10px;
+    border: 1px solid var(--border);
+    border-radius: 5px;
+    background: var(--bg);
+    color: var(--text);
+    font-size: 0.9rem;
+    font-family: inherit;
+  }
+  textarea { min-height: 70px; resize: vertical; }
+  .row { display: flex; gap: 12px; }
+  .row > div { flex: 1; }
+  fieldset {
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    margin-top: 14px;
+    padding: 10px 12px;
+  }
+  legend { font-size: 0.8rem; color: var(--muted); padding: 0 6px; }
+  button {
+    margin-top: 16px;
+    padding: 11px 18px;
+    font-size: 0.95rem;
+    font-weight: 600;
+    border: none;
+    border-radius: 6px;
+    background: var(--accent);
+    color: #fff;
+    cursor: pointer;
+  }
+  button:disabled { opacity: 0.5; cursor: not-allowed; }
+
+  .pending { color: var(--muted); font-size: 0.88rem; }
+  .pending .timer { font-size: 0.78rem; margin-top: 2px; }
+
+  .result-row { margin-bottom: 12px; }
+  .result-row .k { font-size: 0.75rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.03em; margin-bottom: 3px; }
+  .mono {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 0.82rem;
+    white-space: pre-wrap;
+    word-break: break-word;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 5px;
+    padding: 8px 10px;
+  }
+  .badge {
+    display: inline-block;
+    font-size: 0.78rem;
+    padding: 3px 10px;
+    border-radius: 10px;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    margin-bottom: 12px;
+  }
+  .badge.found { color: var(--ok); border-color: var(--ok); }
+  .badge.not-found { color: var(--muted); }
+  .source-item {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 0.8rem;
+    padding: 4px 0;
+    border-bottom: 1px dashed var(--border);
+  }
+  .source-item:last-child { border-bottom: none; }
+  .error-box { color: var(--error); border-color: var(--error); }
+  .hidden { display: none !important; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Ассистент поддержки — SyutsaiMentorPro</h1>
+  <p class="brand-sub">FAQ по приложению + контекст тикета → ответ от LLM. Демо-стенд для Day 33.</p>
+
+  <div class="panel">
+    <label for="query">Вопрос пользователя</label>
+    <textarea id="query" placeholder="Например: почему число миссии не редуцировалось?" required></textarea>
+
+    <label for="ticketId">Тикет</label>
+    <select id="ticketId">
+      <option value="">— без тикета —</option>
+      <option value="T-101">T-101 (Айгуль)</option>
+      <option value="T-102">T-102 (Данияр)</option>
+      <option value="T-103">T-103 (Марина)</option>
+    </select>
+
+    <fieldset>
+      <legend>Basic Auth</legend>
+      <div class="row">
+        <div>
+          <label for="authUser">Логин</label>
+          <input type="text" id="authUser" autocomplete="username" placeholder="demo">
+        </div>
+        <div>
+          <label for="authPass">Пароль</label>
+          <input type="password" id="authPass" autocomplete="current-password" placeholder="demo123">
+        </div>
+      </div>
+    </fieldset>
+
+    <button type="button" id="submitBtn">Спросить</button>
+  </div>
+
+  <div class="panel hidden" id="resultPanel"></div>
+</div>
+
+<script>
+(function () {
+  const queryEl = document.getElementById('query');
+  const ticketSelect = document.getElementById('ticketId');
+  const authUserEl = document.getElementById('authUser');
+  const authPassEl = document.getElementById('authPass');
+  const submitBtn = document.getElementById('submitBtn');
+  const resultPanel = document.getElementById('resultPanel');
+
+  let requestInFlight = false;
+  let timerHandle = null;
+
+  function el(className, text) {
+    const e = document.createElement('div');
+    if (className) e.className = className;
+    if (text !== undefined) e.textContent = text;
+    return e;
+  }
+
+  function showPending() {
+    resultPanel.classList.remove('hidden');
+    resultPanel.innerHTML = '';
+    const box = el('pending');
+    const stage = el(null, 'Ищем в FAQ и генерируем ответ...');
+    const timer = el('timer', 'Прошло: 0 сек');
+    box.appendChild(stage);
+    box.appendChild(timer);
+    resultPanel.appendChild(box);
+
+    const startTime = Date.now();
+    timerHandle = setInterval(function () {
+      const sec = Math.floor((Date.now() - startTime) / 1000);
+      timer.textContent = 'Прошло: ' + sec + ' сек';
+    }, 500);
+  }
+
+  function showError(message) {
+    resultPanel.classList.remove('hidden');
+    resultPanel.innerHTML = '';
+    resultPanel.appendChild(el('error-box', message));
+  }
+
+  function showResult(data) {
+    resultPanel.classList.remove('hidden');
+    resultPanel.innerHTML = '';
+
+    const badge = el(
+      'badge ' + (data.ticketFound ? 'found' : 'not-found'),
+      data.ticketFound
+        ? 'Тикет найден: ' + (ticketSelect.options[ticketSelect.selectedIndex].text)
+        : 'Без привязки к тикету'
+    );
+    resultPanel.appendChild(badge);
+
+    const answerRow = el('result-row');
+    answerRow.appendChild(el('k', 'Ответ'));
+    answerRow.appendChild(el('mono', data.answer || '(пусто)'));
+    resultPanel.appendChild(answerRow);
+
+    const sourcesRow = el('result-row');
+    sourcesRow.appendChild(el('k', 'Источники'));
+    if (data.sources && data.sources.length > 0) {
+      const list = document.createElement('div');
+      data.sources.forEach(function (s) {
+        list.appendChild(el('source-item', s));
+      });
+      sourcesRow.appendChild(list);
+    } else {
+      sourcesRow.appendChild(el('mono', '(нет источников)'));
+    }
+    resultPanel.appendChild(sourcesRow);
+  }
+
+  submitBtn.addEventListener('click', function () {
+    if (requestInFlight) return;
+    const query = queryEl.value.trim();
+    if (!query) return;
+
+    requestInFlight = true;
+    submitBtn.disabled = true;
+    showPending();
+
+    const headers = {
+      'Content-Type': 'application/json',
+      'Authorization': 'Basic ' + btoa(authUserEl.value + ':' + authPassEl.value)
+    };
+    const payload = { query: query };
+    if (ticketSelect.value !== '') payload.ticketId = ticketSelect.value;
+
+    fetch('/support', {
+      method: 'POST',
+      headers: headers,
+      body: JSON.stringify(payload)
+    })
+      .then(function (res) {
+        if (res.status === 401) throw { known: true, message: 'Неверный логин или пароль (401 Unauthorized).' };
+        if (res.status === 429) throw { known: true, message: 'Превышен лимит запросов — подождите и попробуйте снова (429).' };
+        if (!res.ok) {
+          return res.text().then(function (text) {
+            let detail = text;
+            try { detail = JSON.parse(text).error || text; } catch (e) {}
+            throw { known: true, message: 'Ошибка сервера (' + res.status + '): ' + detail };
+          });
+        }
+        return res.json();
+      })
+      .then(function (data) { showResult(data); })
+      .catch(function (err) {
+        const message = (err && err.known) ? err.message : 'Не удалось связаться с сервером: ' + (err && err.message ? err.message : err);
+        showError(message);
+      })
+      .finally(function () {
+        clearInterval(timerHandle);
+        requestInFlight = false;
+        submitBtn.disabled = false;
+      });
+  });
+})();
+</script>
+</body>
+</html>

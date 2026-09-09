@@ -193,3 +193,12 @@ data class ReviewResponse(
     val recommendations: List<String>,
     val sources: List<String>
 )
+
+@Serializable
+data class SupportRequest(val query: String, val ticketId: String? = null)
+
+@Serializable
+data class SupportResponse(val answer: String, val sources: List<String>, val ticketFound: Boolean)
+
+@Serializable
+data class FaqIndexResponse(val chunks: Int, val durationMs: Long)
