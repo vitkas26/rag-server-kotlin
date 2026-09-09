@@ -2,6 +2,7 @@ package kg.vitkas.rag
 
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.cio.CIO
+import io.ktor.client.plugins.HttpTimeout
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.serialization.kotlinx.json.json
 import io.ktor.server.cio.EngineMain
@@ -15,13 +16,29 @@ import kg.vitkas.rag.pipeline.extractTextFromMarkdown
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
 import org.slf4j.LoggerFactory
+import java.io.File
 
 private val logger = LoggerFactory.getLogger("kg.vitkas.rag.Main")
 
+// Ниже этого размера считаем rag_index.db пустым/битым файлом-заглушкой, не настоящим индексом.
+private const val MIN_VALID_DB_SIZE_BYTES = 1000L
+
 fun main(args: Array<String>) {
-    runBlocking { runCliIndexing() }
-    logger.info("🔵 RAG_DAY21 indexing done, starting server on :8080...")
-    EngineMain.main(args)
+    val config = AppConfig.fromDefaults()
+    val forceReindex = System.getenv("FORCE_REINDEX")?.equals("true", ignoreCase = true) == true ||
+        args.contains("--force-reindex")
+
+    val dbFile = File(config.rag.dbPath)
+    val hasExistingIndex = dbFile.exists() && dbFile.length() > MIN_VALID_DB_SIZE_BYTES
+
+    if (hasExistingIndex && !forceReindex) {
+        logger.info("🔵 Existing rag_index.db found, skipping reindex")
+    } else {
+        runBlocking { runCliIndexing() }
+        logger.info("🔵 RAG_DAY21 indexing done, starting server on :8080...")
+    }
+    // --force-reindex не относится к EngineMain (парсит -port=, -P:key=value и т.п.) — не передаём дальше.
+    EngineMain.main(args.filterNot { it == "--force-reindex" }.toTypedArray())
 }
 
 private suspend fun runCliIndexing() {
@@ -30,6 +47,19 @@ private suspend fun runCliIndexing() {
 
     val httpClient = HttpClient(CIO) {
         install(ContentNegotiation) { json(Json { ignoreUnknownKeys = true }) }
+        // HttpTimeout — протокольный таймаут поверх движка, соблюдается независимо от engine{}.
+        // На VPS без GPU генерация эмбеддингов на CPU может занимать дольше дефолтных 15s.
+        install(HttpTimeout) {
+            requestTimeoutMillis = 600_000
+            connectTimeoutMillis = 30_000
+            socketTimeoutMillis = 600_000
+        }
+        // CIO default requestTimeout=15000ms — движковый таймаут, отдельный от HttpTimeout выше.
+        // Держим равным Application.kt (тот же fix для того же сценария), иначе младший из
+        // двух победит и HttpTimeout=300s окажется бессмысленным.
+        engine {
+            requestTimeout = 600_000
+        }
     }
 
     try {

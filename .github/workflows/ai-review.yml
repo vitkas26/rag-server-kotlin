@@ -1,0 +1,72 @@
+name: AI PR Review
+
+on:
+  pull_request:
+
+jobs:
+  ai-review:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout (full history for git diff)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Require RAG_SERVICE_URL secret
+        run: |
+          if [ -z "${{ secrets.RAG_SERVICE_URL }}" ]; then
+            echo "::error::RAG_SERVICE_URL secret is not set — cannot reach the rag-day21 review service."
+            exit 1
+          fi
+
+      - name: Call AI review service
+        id: review
+        env:
+          RAG_SERVICE_URL: ${{ secrets.RAG_SERVICE_URL }}
+          RAG_BASIC_AUTH: ${{ secrets.RAG_BASIC_AUTH }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          response=$(curl -s -w '\n%{http_code}' -u "$RAG_BASIC_AUTH" -X POST "$RAG_SERVICE_URL/review-pr" \
+            -H "Content-Type: application/json" \
+            -d "{\"base\": \"$BASE_SHA\", \"head\": \"$HEAD_SHA\"}")
+          http_code=$(echo "$response" | tail -n1)
+          body=$(echo "$response" | sed '$d')
+          echo "$body" > review.json
+          echo "--- review service response ($http_code) ---"
+          cat review.json
+          if [ "$http_code" != "200" ]; then
+            echo "::error::AI review service returned HTTP $http_code"
+            exit 1
+          fi
+
+      - name: Post review as PR comment
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const review = JSON.parse(fs.readFileSync('review.json', 'utf8'));
+
+            function section(title, items) {
+              if (!items || items.length === 0) return `### ${title}\nне найдено\n`;
+              return `### ${title}\n` + items.map(i => `- ${i}`).join('\n') + '\n';
+            }
+
+            const sourcesBlock = (review.sources && review.sources.length)
+              ? `<details><summary>Источники</summary>\n\n${review.sources.map(s => `- ${s}`).join('\n')}\n\n</details>`
+              : '';
+
+            const body = [
+              '## 🤖 AI Review',
+              section('Баги', review.bugs),
+              section('Архитектурные проблемы', review.architectureIssues),
+              section('Рекомендации', review.recommendations),
+              sourcesBlock
+            ].join('\n');
+
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body
+            });

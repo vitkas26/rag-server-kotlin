@@ -17,21 +17,26 @@ import org.slf4j.LoggerFactory
 
 private val logger = LoggerFactory.getLogger("kg.vitkas.rag.pipeline.EmbeddingService")
 
+private const val EMBED_BATCH_SIZE = 20
+
 class EmbeddingService(private val client: HttpClient, private val config: AppConfig) {
 
     suspend fun embedChunks(chunks: List<Chunk>): Result<List<Chunk>> = runCatching {
-        logger.info("Embedding {} chunks (parallel)", chunks.size)
-        coroutineScope {
-            chunks.mapIndexed { i, chunk ->
-                async {
-                    logger.debug("Embedding chunk {}/{}: {}", i + 1, chunks.size, chunk.chunkId)
-                    val response: OllamaResponse = client.post(config.ollama.url) {
-                        contentType(ContentType.Application.Json)
-                        setBody(OllamaRequest(model = config.ollama.model, prompt = chunk.content))
-                    }.body()
-                    chunk.copy(embedding = response.toVector())
-                }
-            }.awaitAll()
+        logger.info("Embedding {} chunks (parallel, batch size {})", chunks.size, EMBED_BATCH_SIZE)
+        chunks.chunked(EMBED_BATCH_SIZE).flatMapIndexed { batchIndex, batch ->
+            coroutineScope {
+                batch.mapIndexed { i, chunk ->
+                    async {
+                        val globalIndex = batchIndex * EMBED_BATCH_SIZE + i
+                        logger.debug("Embedding chunk {}/{}: {}", globalIndex + 1, chunks.size, chunk.chunkId)
+                        val response: OllamaResponse = client.post(config.ollama.url) {
+                            contentType(ContentType.Application.Json)
+                            setBody(OllamaRequest(model = config.ollama.model, prompt = chunk.content))
+                        }.body()
+                        chunk.copy(embedding = response.toVector())
+                    }
+                }.awaitAll()
+            }
         }
     }
 

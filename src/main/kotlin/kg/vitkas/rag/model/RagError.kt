@@ -8,4 +8,11 @@ sealed class RagError(
     class EmbeddingError(message: String, cause: Throwable? = null) : RagError(message, cause)
     class DatabaseError(message: String, cause: Throwable? = null) : RagError(message, cause)
     class NotIndexedError(message: String) : RagError(message)
+    class AnthropicError(message: String, cause: Throwable? = null) : RagError(message, cause)
+    class OllamaGenerationError(message: String, cause: Throwable? = null) : RagError(message, cause)
+    class DocsIndexError(message: String, cause: Throwable? = null) : RagError(message, cause)
+    class GitError(message: String, cause: Throwable? = null) : RagError(message, cause)
+    class TicketError(message: String, cause: Throwable? = null) : RagError(message, cause)
+    class FaqIndexError(message: String, cause: Throwable? = null) : RagError(message, cause)
+    class FileToolError(message: String, cause: Throwable? = null) : RagError(message, cause)
 }
