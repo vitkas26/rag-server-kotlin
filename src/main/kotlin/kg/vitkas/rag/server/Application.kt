@@ -17,6 +17,7 @@ import io.ktor.server.plugins.calllogging.CallLogging
 import io.ktor.server.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.server.plugins.origin
 import io.ktor.server.plugins.statuspages.StatusPages
+import io.ktor.server.request.path
 import io.ktor.server.response.respond
 import io.ktor.server.routing.RouteSelector
 import io.ktor.server.routing.RouteSelectorEvaluation
@@ -31,6 +32,7 @@ import kg.vitkas.rag.domain.port.LlmPort
 import kg.vitkas.rag.domain.port.ProjectDocsPort
 import kg.vitkas.rag.domain.usecase.AnswerHelpQueryUseCase
 import kg.vitkas.rag.infrastructure.llm.AnthropicLlmAdapter
+import kg.vitkas.rag.infrastructure.llm.OllamaLlmAdapter
 import kg.vitkas.rag.infrastructure.mcp.GitInfoMcpAdapter
 import kg.vitkas.rag.infrastructure.mcp.buildMcpGitServer
 import kg.vitkas.rag.infrastructure.rag.CodeContextRagAdapter
@@ -50,6 +52,9 @@ import kg.vitkas.rag.server.routes.indexRoutes
 import kg.vitkas.rag.server.routes.reviewRoutes
 import kg.vitkas.rag.server.routes.searchRoutes
 import kotlinx.serialization.json.Json
+import org.slf4j.LoggerFactory
+
+private val logger = LoggerFactory.getLogger("kg.vitkas.rag.server.Application")
 
 // Ручная проверка Basic Auth вместо io.ktor:ktor-server-auth — тот плагин на 401 автоматически
 // ставит заголовок WWW-Authenticate: Basic, и браузер перехватывает это СВОИМ нативным окном
@@ -108,9 +113,11 @@ fun Application.module() {
             call.respond(HttpStatusCode.Conflict, ErrorResponse(e.message ?: "Not indexed"))
         }
         exception<RagError> { call, e ->
+            logger.error("Unhandled RagError in {}", call.request.path(), e)
             call.respond(HttpStatusCode.InternalServerError, ErrorResponse(e.message ?: "Internal error"))
         }
         exception<Throwable> { call, e ->
+            logger.error("Unhandled exception in {}", call.request.path(), e)
             call.respond(HttpStatusCode.InternalServerError, ErrorResponse(e.message ?: "Unknown error"))
         }
         // RateLimit-плагин сам отвечает 429 без тела по умолчанию — этот хендлер перехватывает
@@ -141,6 +148,8 @@ fun Application.module() {
     val projectDocsPort: ProjectDocsPort = ProjectDocsRagAdapter(embeddingService, indexRepository, config)
     val codeContextPort: ProjectDocsPort = CodeContextRagAdapter(embeddingService, indexRepository, config)
     val llmPort: LlmPort = AnthropicLlmAdapter(anthropicClient)
+    // Day 32→33: Anthropic geo-blocked (403) на VPS в РФ — review-PR переведён на локальную Ollama.
+    val reviewLlmPort: LlmPort = OllamaLlmAdapter(ollamaGenerationClient)
     val answerHelpQueryUseCase = AnswerHelpQueryUseCase(gitInfoPort, projectDocsPort, llmPort)
     // Day 32: diff — прямой git через ProcessBuilder, БЕЗ MCP (репо и раннер CI на одной машине).
     // GitDiffAdapter не wire-ится здесь синглтоном — конструируется в ReviewRoutes под repoPath
@@ -173,7 +182,7 @@ fun Application.module() {
             }
             askRoutes(embeddingService, indexRepository, anthropicClient, ollamaGenerationClient, config)
             helpRoutes(answerHelpQueryUseCase)
-            reviewRoutes(projectDocsPort, codeContextPort, llmPort, defaultRepoPath)
+            reviewRoutes(projectDocsPort, codeContextPort, reviewLlmPort, defaultRepoPath)
         }
         debugRoutes(embeddingService, indexRepository, ollamaGenerationClient)
     }
