@@ -173,3 +173,23 @@ data class Day29ReportResponse(
     val reportPath: String,
     val summary: List<ExperimentSummary>
 )
+
+@Serializable
+data class DocsIndexResponse(val chunks: Int, val durationMs: Long)
+
+@Serializable
+data class HelpRequest(val query: String)
+
+@Serializable
+data class HelpResponse(val answer: String, val sources: List<String>)
+
+@Serializable
+data class ReviewRequest(val base: String, val head: String, val repoPath: String? = null)
+
+@Serializable
+data class ReviewResponse(
+    val bugs: List<String>,
+    val architectureIssues: List<String>,
+    val recommendations: List<String>,
+    val sources: List<String>
+)

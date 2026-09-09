@@ -16,33 +16,28 @@ class IndexRepository(private val config: AppConfig) {
 
     fun save(fixedChunks: List<Chunk>, sectionChunks: List<Chunk>): Result<Unit> = runCatching {
         logger.info("Saving {} fixed + {} section chunks to {}", fixedChunks.size, sectionChunks.size, config.rag.dbPath)
+        saveToTable(fixedChunks, "chunks_fixed").getOrThrow()
+        saveToTable(sectionChunks, "chunks_by_section").getOrThrow()
+    }
+
+    fun saveToTable(chunks: List<Chunk>, table: String): Result<Unit> = runCatching {
+        logger.info("Saving {} chunks to {}", chunks.size, table)
         DriverManager.getConnection("jdbc:sqlite:${config.rag.dbPath}").use { conn ->
             conn.createStatement().use { stmt ->
                 stmt.execute("""
-                    CREATE TABLE IF NOT EXISTS chunks_fixed (
-                        chunk_id TEXT PRIMARY KEY, source TEXT, strategy TEXT,
-                        title TEXT, section TEXT, word_count INTEGER, content TEXT, embedding TEXT
-                    )
-                """.trimIndent())
-                stmt.execute("""
-                    CREATE TABLE IF NOT EXISTS chunks_by_section (
+                    CREATE TABLE IF NOT EXISTS $table (
                         chunk_id TEXT PRIMARY KEY, source TEXT, strategy TEXT,
                         title TEXT, section TEXT, word_count INTEGER, content TEXT, embedding TEXT
                     )
                 """.trimIndent())
             }
-            insertChunks(conn, fixedChunks, "chunks_fixed")
-            insertChunks(conn, sectionChunks, "chunks_by_section")
+            insertChunks(conn, chunks, table)
         }
     }
 
     fun search(queryEmbedding: List<Double>, table: String, topK: Int): List<SearchResult> {
         logger.debug("Searching in {} (topK={})", table, topK)
-        return loadAll(table)
-            .filter { it.embedding.isNotEmpty() }
-            .map { it to cosineSimilarity(queryEmbedding, it.embedding) }
-            .sortedByDescending { (_, score) -> score }
-            .take(topK)
+        return searchChunksWithScore(queryEmbedding, table, topK)
             .map { (chunk, score) ->
                 SearchResult(
                     chunkId  = chunk.chunkId,
@@ -53,6 +48,14 @@ class IndexRepository(private val config: AppConfig) {
                     strategy = chunk.strategy
                 )
             }
+    }
+
+    fun searchChunksWithScore(queryEmbedding: List<Double>, table: String, topK: Int): List<Pair<Chunk, Double>> {
+        return loadAll(table)
+            .filter { it.embedding.isNotEmpty() }
+            .map { it to cosineSimilarity(queryEmbedding, it.embedding) }
+            .sortedByDescending { (_, score) -> score }
+            .take(topK)
     }
 
     fun stats(): Map<String, Any> {

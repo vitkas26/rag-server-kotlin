@@ -17,14 +17,26 @@ import io.ktor.server.plugins.calllogging.CallLogging
 import io.ktor.server.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.server.plugins.origin
 import io.ktor.server.plugins.statuspages.StatusPages
+import io.ktor.server.request.path
 import io.ktor.server.response.respond
 import io.ktor.server.routing.RouteSelector
 import io.ktor.server.routing.RouteSelectorEvaluation
 import io.ktor.server.routing.RoutingResolveContext
 import io.ktor.server.routing.intercept
 import io.ktor.server.routing.routing
+import io.modelcontextprotocol.kotlin.sdk.server.mcpStreamableHttp
 import java.util.Base64
 import kg.vitkas.rag.config.AppConfig
+import kg.vitkas.rag.domain.port.GitInfoPort
+import kg.vitkas.rag.domain.port.LlmPort
+import kg.vitkas.rag.domain.port.ProjectDocsPort
+import kg.vitkas.rag.domain.usecase.AnswerHelpQueryUseCase
+import kg.vitkas.rag.infrastructure.llm.AnthropicLlmAdapter
+import kg.vitkas.rag.infrastructure.llm.OllamaLlmAdapter
+import kg.vitkas.rag.infrastructure.mcp.GitInfoMcpAdapter
+import kg.vitkas.rag.infrastructure.mcp.buildMcpGitServer
+import kg.vitkas.rag.infrastructure.rag.CodeContextRagAdapter
+import kg.vitkas.rag.infrastructure.rag.ProjectDocsRagAdapter
 import kg.vitkas.rag.model.ErrorResponse
 import kg.vitkas.rag.model.RagError
 import kg.vitkas.rag.pipeline.AnthropicClient
@@ -32,10 +44,17 @@ import kg.vitkas.rag.pipeline.EmbeddingService
 import kg.vitkas.rag.pipeline.IndexRepository
 import kg.vitkas.rag.pipeline.OllamaGenerationClient
 import kg.vitkas.rag.server.routes.askRoutes
+import kg.vitkas.rag.server.routes.codeIndexRoutes
 import kg.vitkas.rag.server.routes.debugRoutes
+import kg.vitkas.rag.server.routes.docsIndexRoutes
+import kg.vitkas.rag.server.routes.helpRoutes
 import kg.vitkas.rag.server.routes.indexRoutes
+import kg.vitkas.rag.server.routes.reviewRoutes
 import kg.vitkas.rag.server.routes.searchRoutes
 import kotlinx.serialization.json.Json
+import org.slf4j.LoggerFactory
+
+private val logger = LoggerFactory.getLogger("kg.vitkas.rag.server.Application")
 
 // Ручная проверка Basic Auth вместо io.ktor:ktor-server-auth — тот плагин на 401 автоматически
 // ставит заголовок WWW-Authenticate: Basic, и браузер перехватывает это СВОИМ нативным окном
@@ -94,9 +113,11 @@ fun Application.module() {
             call.respond(HttpStatusCode.Conflict, ErrorResponse(e.message ?: "Not indexed"))
         }
         exception<RagError> { call, e ->
+            logger.error("Unhandled RagError in {}", call.request.path(), e)
             call.respond(HttpStatusCode.InternalServerError, ErrorResponse(e.message ?: "Internal error"))
         }
         exception<Throwable> { call, e ->
+            logger.error("Unhandled exception in {}", call.request.path(), e)
             call.respond(HttpStatusCode.InternalServerError, ErrorResponse(e.message ?: "Unknown error"))
         }
         // RateLimit-плагин сам отвечает 429 без тела по умолчанию — этот хендлер перехватывает
@@ -118,11 +139,31 @@ fun Application.module() {
     val ollamaBaseUrl = config.ollama.url.removeSuffix("/api/embeddings")
     val ollamaGenerationClient = OllamaGenerationClient(httpClient, ollamaBaseUrl, config.ollama.generationModel)
 
+    // MCP git-tools сервер монтируется в этом же Ktor-приложении/порту (не отдельный процесс) —
+    // GitInfoMcpAdapter ниже ходит на него же по loopback как настоящий MCP-клиент.
+    // TODO: add auth before VPS deploy
+    mcpStreamableHttp(path = "/mcp/git") { buildMcpGitServer() }
+
+    val gitInfoPort: GitInfoPort = GitInfoMcpAdapter(config.mcp.baseUrl)
+    val projectDocsPort: ProjectDocsPort = ProjectDocsRagAdapter(embeddingService, indexRepository, config)
+    val codeContextPort: ProjectDocsPort = CodeContextRagAdapter(embeddingService, indexRepository, config)
+    val llmPort: LlmPort = AnthropicLlmAdapter(anthropicClient)
+    // Day 32→33: Anthropic geo-blocked (403) на VPS в РФ — review-PR переведён на локальную Ollama.
+    val reviewLlmPort: LlmPort = OllamaLlmAdapter(ollamaGenerationClient)
+    val answerHelpQueryUseCase = AnswerHelpQueryUseCase(gitInfoPort, projectDocsPort, llmPort)
+    // Day 32: diff — прямой git через ProcessBuilder, БЕЗ MCP (репо и раннер CI на одной машине).
+    // GitDiffAdapter не wire-ится здесь синглтоном — конструируется в ReviewRoutes под repoPath
+    // конкретного запроса (см. комментарий там).
+    val defaultRepoPath = System.getProperty("user.dir")
+    monitor.subscribe(ApplicationStopped) { (gitInfoPort as GitInfoMcpAdapter).close() }
+
     routing {
         // Вне createChild(AskRoutesSelector) ниже — страница открывается без Basic Auth,
         // авторизация нужна только самим fetch()-запросам к /ask-* из формы, не самой странице.
         staticResources("/chat", "static")
         indexRoutes(embeddingService, indexRepository, config)
+        docsIndexRoutes(embeddingService, indexRepository, config)
+        codeIndexRoutes(embeddingService, indexRepository, config)
         searchRoutes(embeddingService, indexRepository, config)
         // Rate limit + Basic Auth (10 req/min per IP) — только на /ask-*, per задание.
         createChild(AskRoutesSelector).apply {
@@ -140,6 +181,8 @@ fun Application.module() {
                 }
             }
             askRoutes(embeddingService, indexRepository, anthropicClient, ollamaGenerationClient, config)
+            helpRoutes(answerHelpQueryUseCase)
+            reviewRoutes(projectDocsPort, codeContextPort, reviewLlmPort, defaultRepoPath)
         }
         debugRoutes(embeddingService, indexRepository, ollamaGenerationClient)
     }
