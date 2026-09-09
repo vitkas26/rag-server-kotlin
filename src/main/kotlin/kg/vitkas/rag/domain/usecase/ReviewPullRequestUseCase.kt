@@ -4,6 +4,7 @@ import kg.vitkas.rag.domain.model.CodeReview
 import kg.vitkas.rag.domain.port.DiffPort
 import kg.vitkas.rag.domain.port.LlmPort
 import kg.vitkas.rag.domain.port.ProjectDocsPort
+import kg.vitkas.rag.model.RagError
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import org.slf4j.LoggerFactory
@@ -44,8 +45,8 @@ class ReviewPullRequestUseCase(
     private val codeContextPort: ProjectDocsPort,
     private val llmPort: LlmPort
 ) {
-    suspend fun execute(base: String, head: String, repoPath: String): CodeReview {
-        logger.debug("Reviewing PR base={} head={} repoPath={}", base, head, repoPath)
+    suspend fun execute(base: String, head: String): CodeReview {
+        logger.debug("Reviewing PR base={} head={}", base, head)
 
         val diff = diffPort.getDiff(base, head)
         val changedFiles = diffPort.changedFiles(base, head)
@@ -83,6 +84,11 @@ class ReviewPullRequestUseCase(
                 recommendations = json.recommendations,
                 sources = sources
             )
+        }
+
+        if (SECTION_HEADERS.none { raw.contains(it) }) {
+            logger.error("Failed to parse LLM review response as JSON or markdown: {}", raw)
+            throw RagError.ReviewParseError("LLM review response did not match expected JSON or markdown format")
         }
 
         return CodeReview(
