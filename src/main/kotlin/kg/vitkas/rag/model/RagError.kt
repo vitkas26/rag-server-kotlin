@@ -12,6 +12,7 @@ sealed class RagError(
     class OllamaGenerationError(message: String, cause: Throwable? = null) : RagError(message, cause)
     class DocsIndexError(message: String, cause: Throwable? = null) : RagError(message, cause)
     class GitError(message: String, cause: Throwable? = null) : RagError(message, cause)
+    class ReviewParseError(message: String) : RagError(message)
     class TicketError(message: String, cause: Throwable? = null) : RagError(message, cause)
     class FaqIndexError(message: String, cause: Throwable? = null) : RagError(message, cause)
     class FileToolError(message: String, cause: Throwable? = null) : RagError(message, cause)

@@ -9,7 +9,6 @@ import kg.vitkas.rag.domain.port.DiffPort
 import kg.vitkas.rag.domain.port.LlmPort
 import kg.vitkas.rag.domain.port.ProjectDocsPort
 import kg.vitkas.rag.domain.usecase.ReviewPullRequestUseCase
-import kg.vitkas.rag.infrastructure.git.GitDiffAdapter
 import kg.vitkas.rag.model.ReviewRequest
 import kg.vitkas.rag.model.ReviewResponse
 
@@ -17,19 +16,13 @@ fun Route.reviewRoutes(
     projectDocsPort: ProjectDocsPort,
     codeContextPort: ProjectDocsPort,
     llmPort: LlmPort,
-    defaultRepoPath: String
+    diffPort: DiffPort
 ) {
     post("/review-pr") {
         val request = call.receive<ReviewRequest>()
-        val repoPath = request.repoPath ?: defaultRepoPath
-
-        // GitDiffAdapter не держит соединений/состояния (в отличие от GitInfoMcpAdapter) —
-        // дёшево создать под конкретный repoPath запроса, а не завязываться на один
-        // wired-at-startup инстанс с фиксированным путём.
-        val diffPort: DiffPort = GitDiffAdapter(repoPath)
         val useCase = ReviewPullRequestUseCase(diffPort, projectDocsPort, codeContextPort, llmPort)
 
-        val review = useCase.execute(request.base, request.head, repoPath)
+        val review = useCase.execute(request.base, request.head)
 
         call.respond(
             HttpStatusCode.OK,

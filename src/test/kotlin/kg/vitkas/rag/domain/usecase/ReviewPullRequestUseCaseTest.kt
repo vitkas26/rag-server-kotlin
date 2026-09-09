@@ -75,7 +75,7 @@ class ReviewPullRequestUseCaseTest {
         val llmPort = FakeReviewLlmPort(llmResponse)
         val useCase = ReviewPullRequestUseCase(diffPort, docsPort, codePort, llmPort)
 
-        val review = useCase.execute(base = "main", head = "feature", repoPath = "/repo")
+        val review = useCase.execute(base = "main", head = "feature")
 
         assertEquals(listOf("null-check отсутствует в Foo.kt:12"), review.bugs)
         assertEquals(emptyList(), review.architectureIssues)
@@ -90,7 +90,7 @@ class ReviewPullRequestUseCaseTest {
         val llmPort = FakeReviewLlmPort(llmResponse)
         val useCase = ReviewPullRequestUseCase(diffPort, docsPort, codePort, llmPort)
 
-        useCase.execute(base = "abc123", head = "def456", repoPath = "/repo")
+        useCase.execute(base = "abc123", head = "def456")
 
         assertEquals("abc123", diffPort.lastBase)
         assertEquals("def456", diffPort.lastHead)
@@ -104,7 +104,7 @@ class ReviewPullRequestUseCaseTest {
         val llmPort = FakeReviewLlmPort(llmResponse)
         val useCase = ReviewPullRequestUseCase(diffPort, docsPort, codePort, llmPort)
 
-        val review = useCase.execute(base = "main", head = "feature", repoPath = "/repo")
+        val review = useCase.execute(base = "main", head = "feature")
 
         assertTrue(review.sources.contains("ARCHITECTURE.md"))
         assertTrue(review.sources.contains("Foo.kt"))

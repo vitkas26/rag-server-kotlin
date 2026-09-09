@@ -184,7 +184,7 @@ data class HelpRequest(val query: String)
 data class HelpResponse(val answer: String, val sources: List<String>)
 
 @Serializable
-data class ReviewRequest(val base: String, val head: String, val repoPath: String? = null)
+data class ReviewRequest(val base: String, val head: String)
 
 @Serializable
 data class ReviewResponse(

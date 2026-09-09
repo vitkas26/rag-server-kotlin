@@ -28,12 +28,14 @@ import io.modelcontextprotocol.kotlin.sdk.server.mcpStreamableHttp
 import java.util.Base64
 import kg.vitkas.rag.config.AppConfig
 import kg.vitkas.rag.domain.port.AgenticLlmPort
+import kg.vitkas.rag.domain.port.DiffPort
 import kg.vitkas.rag.domain.port.FileToolPort
 import kg.vitkas.rag.domain.port.GitInfoPort
 import kg.vitkas.rag.domain.port.LlmPort
 import kg.vitkas.rag.domain.port.ProjectDocsPort
 import kg.vitkas.rag.domain.usecase.AnswerHelpQueryUseCase
 import kg.vitkas.rag.domain.usecase.FileAssistantUseCase
+import kg.vitkas.rag.infrastructure.git.GitDiffAdapter
 import kg.vitkas.rag.infrastructure.llm.AnthropicAgenticLlmAdapter
 import kg.vitkas.rag.infrastructure.llm.AnthropicLlmAdapter
 import kg.vitkas.rag.infrastructure.llm.OllamaLlmAdapter
@@ -167,9 +169,8 @@ fun Application.module() {
     val faqPort: ProjectDocsPort = FaqRagAdapter(embeddingService, indexRepository, config)
     val answerSupportQueryUseCase = AnswerSupportQueryUseCase(ticketPort, faqPort, llmPort)
     // Day 32: diff — прямой git через ProcessBuilder, БЕЗ MCP (репо и раннер CI на одной машине).
-    // GitDiffAdapter не wire-ится здесь синглтоном — конструируется в ReviewRoutes под repoPath
-    // конкретного запроса (см. комментарий там).
     val defaultRepoPath = System.getProperty("user.dir")
+    val reviewDiffPort: DiffPort = GitDiffAdapter(defaultRepoPath)
     monitor.subscribe(ApplicationStopped) { (gitInfoPort as GitInfoMcpAdapter).close() }
 
     // Day 34: файловый ассистент — MCP filesystem server как отдельный npm-процесс (stdio),
@@ -206,7 +207,7 @@ fun Application.module() {
             askRoutes(embeddingService, indexRepository, anthropicClient, ollamaGenerationClient, config)
             helpRoutes(answerHelpQueryUseCase)
             supportRoutes(answerSupportQueryUseCase)
-            reviewRoutes(projectDocsPort, codeContextPort, reviewLlmPort, defaultRepoPath)
+            reviewRoutes(projectDocsPort, codeContextPort, reviewLlmPort, reviewDiffPort)
             fileAssistantRoutes(fileAssistantUseCase)
         }
         debugRoutes(embeddingService, indexRepository, ollamaGenerationClient)
